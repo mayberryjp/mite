@@ -70,7 +70,7 @@ def setup_patterns_routes(app):
                 if title == "":
                     update_pattern_title(pattern_id, None)
                 else:
-                    update_pattern_title(pattern_id, title[:25])
+                    update_pattern_title(pattern_id, title[:40])
 
             if match_regex is not None:
                 if match_regex == "":
@@ -94,7 +94,7 @@ def setup_patterns_routes(app):
             if match_regex is not None:
                 result["match_regex"] = match_regex or None
             if title is not None:
-                result["title"] = title[:25] if title else None
+                result["title"] = title[:40] if title else None
             return json.dumps(result)
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to update pattern {pattern_id}: {e}")

@@ -41,7 +41,7 @@ Respond ONLY with a JSON array. Each element must have:
 - "classification": one of "critical", "high", "medium", "low", "noise"
 - "description": 2-4 sentences explaining what this log pattern means, what produces it, and why it matters or doesn't matter. Write as if explaining to a fellow engineer.
 - "match_regex": a Python regex string that matches this type of log message
-- "title": a short human-readable title for this log type (max 25 characters, e.g. "SSH Brute Force", "FW Block TCP", "DHCP Renewal")
+- "title": a short human-readable title describing the TYPE of log event (max 40 characters). The title must describe WHAT is happening, NOT contain any timestamps, dates, IP addresses, hostnames, or specific values from the log. Good examples: "SSH Failed Login Attempt", "Firewall Block Inbound TCP", "Kernel WiFi Disconnect", "Cron Session Open/Close", "DHCP Lease Renewal". Bad examples: "2026-06-13 Log", "192.168.1.1 Connection", "office-ap Event".
 
 Example response:
 [
@@ -148,7 +148,7 @@ def classify_patterns(patterns):
             classification = result.get("classification", "").lower()
             description = result.get("description", "")
             match_regex = result.get("match_regex", "")
-            title = result.get("title", "")[:25] if result.get("title") else None
+            title = result.get("title", "")[:40] if result.get("title") else None
 
             if classification not in VALID_CLASSIFICATIONS:
                 log_error(logger, f"[ERROR] Invalid classification '{classification}' for pattern {pattern_id}")
