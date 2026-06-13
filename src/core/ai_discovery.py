@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 
 import requests
 
@@ -18,6 +19,26 @@ from src.utils.locallogging import log_error, log_info
 logger = logging.getLogger(__name__)
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
+
+MAX_AI_CALLS_PER_DAY = 500
+_ai_call_count = 0
+_ai_call_window_start = 0
+
+
+def _check_rate_limit():
+    """Returns True if we can make another AI call, False if rate limited."""
+    global _ai_call_count, _ai_call_window_start
+    now = time.time()
+    # Reset counter every 24 hours
+    if now - _ai_call_window_start > 86400:
+        _ai_call_count = 0
+        _ai_call_window_start = now
+    return _ai_call_count < MAX_AI_CALLS_PER_DAY
+
+
+def _increment_call_count():
+    global _ai_call_count
+    _ai_call_count += 1
 
 AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls and network devices. Please help me understand the following logs and whether they are important or not and what the meaning of each log is.
 
@@ -94,6 +115,10 @@ def classify_patterns(patterns):
     if not AI_API_BASE_URL or not AI_API_KEY:
         return {"status": "error", "message": "AI API not configured — set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL"}
 
+    if not _check_rate_limit():
+        log_error(logger, f"[ERROR] AI rate limit reached: {_ai_call_count}/{MAX_AI_CALLS_PER_DAY} calls in 24h window. Skipping classification.")
+        return {"status": "error", "message": f"Rate limit reached ({MAX_AI_CALLS_PER_DAY} calls/day)"}
+
     if not patterns:
         return {"status": "ok", "classified": 0}
 
@@ -130,6 +155,9 @@ def classify_patterns(patterns):
             error_body = resp.text[:500]
             log_error(logger, f"[ERROR] AI API returned HTTP {resp.status_code}: {error_body}")
             return {"status": "error", "message": f"AI API HTTP {resp.status_code}: {error_body}"}
+
+        _increment_call_count()
+        log_info(logger, f"[INFO] AI call {_ai_call_count}/{MAX_AI_CALLS_PER_DAY} in 24h window")
 
         data = resp.json()
         ai_content = data["choices"][0]["message"]["content"]
