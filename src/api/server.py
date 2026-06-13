@@ -10,7 +10,7 @@ from src.core.discord import send_discord_message
 from src.api.routes_logs import setup_logs_routes
 from src.api.routes_alerts import setup_alerts_routes
 from src.api.routes_hosts import setup_hosts_routes
-from src.api.routes_rules import setup_rules_routes
+from src.api.routes_rules import setup_patterns_routes
 from src.api.routes_discovery import setup_discovery_routes
 from src.utils.locallogging import log_error, log_info
 
@@ -26,7 +26,7 @@ app = Bottle()
 setup_logs_routes(app)
 setup_alerts_routes(app)
 setup_hosts_routes(app)
-setup_rules_routes(app)
+setup_patterns_routes(app)
 setup_discovery_routes(app)
 
 

@@ -3,64 +3,72 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.rule_loader import load_all_rules
+from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override
 from src.utils.locallogging import log_error, log_info
 
+VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise", None}
 
-def setup_rules_routes(app):
 
-    @app.route("/api/rules", method=["GET"])
-    def api_get_rules():
+def setup_patterns_routes(app):
+
+    @app.route("/api/patterns", method=["GET"])
+    def api_get_patterns():
         logger = logging.getLogger(__name__)
         try:
-            rules, errors = load_all_rules()
+            limit = int(request.params.get("limit", 100))
+            offset = int(request.params.get("offset", 0))
+            classification = request.params.get("classification")
 
-            result = []
-            for rule in rules:
-                result.append({
-                    "name": rule.get("name"),
-                    "enabled": rule.get("enabled", True),
-                    "severity": rule.get("severity"),
-                    "description": rule.get("description"),
-                    "source_file": rule.get("source_file", ""),
-                    "cooldown_seconds": rule.get("cooldown_seconds", 300),
-                    "discord": rule.get("discord", False),
-                    "load_status": "ok",
-                })
-
-            for error in errors:
-                result.append({
-                    "name": error.get("file", "unknown"),
-                    "enabled": False,
-                    "severity": None,
-                    "description": error.get("error", "Load error"),
-                    "source_file": error.get("file", ""),
-                    "cooldown_seconds": 0,
-                    "discord": False,
-                    "load_status": "error",
-                })
+            items, total = get_all_patterns(
+                limit=limit, offset=offset, classification=classification,
+            )
 
             response.content_type = "application/json"
-            log_info(logger, f"[INFO] Retrieved {len(rules)} rules, {len(errors)} errors")
-            return json.dumps(result)
+            log_info(logger, f"[INFO] Retrieved {len(items)} patterns (total {total})")
+            return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
         except Exception as e:
-            log_error(logger, f"[ERROR] Failed to get rules: {e}")
+            log_error(logger, f"[ERROR] Failed to get patterns: {e}")
             response.status = 500
             return {"error": str(e)}
 
-    @app.route("/api/rules/reload", method=["POST"])
-    def api_reload_rules():
+    @app.route("/api/patterns/<pattern_id:int>", method=["GET"])
+    def api_get_pattern(pattern_id):
         logger = logging.getLogger(__name__)
         try:
-            rules, errors = load_all_rules()
+            pattern = get_pattern_by_id(pattern_id)
+            if not pattern:
+                response.status = 404
+                return {"error": "Pattern not found"}
+
             response.content_type = "application/json"
-            log_info(logger, f"[INFO] Reloaded rules: {len(rules)} loaded, {len(errors)} errors")
-            return json.dumps({
-                "loaded": len(rules),
-                "errors": len(errors),
-                "error_details": errors,
-            })
+            return json.dumps(pattern)
         except Exception as e:
-            log_error(logger, f"[ERROR] Failed to reload rules: {e}")
+            log_error(logger, f"[ERROR] Failed to get pattern {pattern_id}: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns/<pattern_id:int>", method=["PUT"])
+    def api_update_pattern(pattern_id):
+        logger = logging.getLogger(__name__)
+        try:
+            pattern = get_pattern_by_id(pattern_id)
+            if not pattern:
+                response.status = 404
+                return {"error": "Pattern not found"}
+
+            data = request.json or {}
+            user_override = data.get("classification")
+
+            if user_override is not None and user_override not in {"critical", "high", "medium", "low", "noise"}:
+                response.status = 400
+                return {"error": f"Invalid classification: {user_override}"}
+
+            update_pattern_user_override(pattern_id, user_override)
+
+            log_info(logger, f"[INFO] Pattern {pattern_id} override set to '{user_override}'")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "pattern_id": pattern_id, "user_override": user_override})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to update pattern {pattern_id}: {e}")
             response.status = 500
             return {"error": str(e)}

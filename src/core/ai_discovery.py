@@ -1,7 +1,6 @@
+import json
 import logging
-import os
 import re
-from datetime import datetime
 
 import requests
 
@@ -9,95 +8,65 @@ from src.core.config import (
     AI_API_BASE_URL,
     AI_API_KEY,
     AI_MODEL,
-    AI_SAMPLE_MAX_LINES,
     AI_DISCOVERY_ENABLED,
-    MITE_ANALYSIS_DIR,
 )
 from src.core.db import (
-    get_log_samples_for_source,
-    insert_ai_analysis,
+    get_pending_patterns,
+    update_pattern_classification,
 )
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
-SECRET_PATTERNS = [
-    re.compile(r"password\s*=\s*\S+", re.IGNORECASE),
-    re.compile(r"passwd\s*=\s*\S+", re.IGNORECASE),
-    re.compile(r"token\s*=\s*\S+", re.IGNORECASE),
-    re.compile(r"api_key\s*=\s*\S+", re.IGNORECASE),
-    re.compile(r"authorization:\s*\S+", re.IGNORECASE),
-    re.compile(r"bearer\s+\S+", re.IGNORECASE),
-    re.compile(r"secret\s*=\s*\S+", re.IGNORECASE),
+VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
+
+AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls and network devices. Please help me understand the following logs and whether they are important or not and what the meaning of each log is.
+
+Each log pattern below has dynamic values (IPs, timestamps, numbers) replaced with placeholders like <IP>, <N>, <TS>, etc. I need you to:
+
+1. Explain what this log pattern means in plain language — what system/service produces it, what event it represents, and whether it indicates a problem.
+2. Classify its importance for alerting:
+   - "critical": System is down, data loss, security breach (e.g., disk failure, kernel panic, OOM killer)
+   - "high": Needs attention soon (e.g., repeated auth failures, service crashes, certificate expiry)
+   - "medium": Worth monitoring but not urgent (e.g., unusual service restarts, config warnings)
+   - "low": Informational, normal operations (e.g., scheduled tasks completed, routine state changes)
+   - "noise": Routine/expected traffic, not worth alerting on (e.g., firewall blocks on common scan ports, NTP sync, DHCP renewals)
+
+Respond ONLY with a JSON array. Each element must have:
+- "id": the pattern ID (integer, from the input)
+- "classification": one of "critical", "high", "medium", "low", "noise"
+- "description": 2-4 sentences explaining what this log pattern means, what produces it, and why it matters or doesn't matter. Write as if explaining to a fellow engineer.
+
+Example response:
+[
+  {{"id": 1, "classification": "high", "description": "This log indicates repeated failed SSH login attempts, typically produced by the sshd daemon. This usually means someone or a bot is attempting to brute-force credentials on your server. You should investigate the source IP and consider blocking it or ensuring fail2ban is active."}},
+  {{"id": 2, "classification": "noise", "description": "This is a standard firewall deny log for an incoming connection on a commonly scanned port. These are routine internet background noise from automated scanners and do not indicate a targeted attack. Safe to ignore unless the volume is unusually high."}}
 ]
 
-AI_PROMPT_TEMPLATE = """You are analyzing syslog samples for a lightweight homelab monitoring tool named Mite.
+Patterns to analyze:
 
-Your job:
-
-- Identify what device/application these logs likely come from.
-- Explain normal vs suspicious vs critical messages.
-- Recommend alert rules.
-- Avoid over-alerting.
-- Prefer high-confidence rules.
-- Return a Markdown analysis.
-- Include a YAML code block named MITE_rules.
-
-Rules should use this schema:
-rules:
-  - name:
-    enabled:
-    severity:
-    description:
-    match:
-      contains_any:
-      contains_all:
-      regex_any:
-      regex_all:
-      host_any:
-      source_ip_any:
-      program_any:
-      severity_any:
-      facility_any:
-    cooldown_seconds:
-    cooldown_key:
-    discord:
-    action:
-
-Do not include secrets.
-Do not include private credentials.
-Do not recommend alerting on every routine firewall block.
-Make rules practical and low-noise.
-
-Analyze these logs:
-
-{log_samples}"""
+{patterns}"""
 
 
-def redact_secrets(text):
-    for pattern in SECRET_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
-    return text
-
-
-def run_ai_analysis(source_ip=None, host=None, sample_count=None):
+def classify_patterns(patterns):
     if not AI_DISCOVERY_ENABLED:
         return {"status": "error", "message": "AI discovery is not enabled"}
 
     if not AI_API_BASE_URL or not AI_API_KEY:
         return {"status": "error", "message": "AI API not configured"}
 
-    max_lines = sample_count or AI_SAMPLE_MAX_LINES
-    samples = get_log_samples_for_source(source_ip=source_ip, host=host, limit=max_lines)
+    if not patterns:
+        return {"status": "ok", "classified": 0}
 
-    if not samples:
-        return {"status": "error", "message": "No log samples found for this source"}
+    # Build the prompt input
+    pattern_lines = []
+    for p in patterns:
+        pattern_lines.append(
+            f"ID: {p['id']}\nPattern: {p['pattern_text']}\nSample: {p['sample_message']}\nHost: {p.get('host', 'unknown')}\nProgram: {p.get('program', 'unknown')}\n"
+        )
+    patterns_text = "\n---\n".join(pattern_lines)
 
-    # Redact secrets from samples
-    redacted_samples = [redact_secrets(s) for s in samples]
-    log_text = "\n".join(redacted_samples)
-
-    prompt = AI_PROMPT_TEMPLATE.format(log_samples=log_text)
+    prompt = AI_PROMPT_TEMPLATE.format(patterns=patterns_text)
 
     try:
         headers = {
@@ -122,45 +91,30 @@ def run_ai_analysis(source_ip=None, host=None, sample_count=None):
         data = resp.json()
         ai_content = data["choices"][0]["message"]["content"]
 
-        # Save markdown file
-        identifier = host or source_ip or "unknown"
-        identifier = re.sub(r"[^\w\-.]", "_", identifier)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        filename = f"{timestamp}-{identifier}.md"
-        filepath = os.path.join(MITE_ANALYSIS_DIR, filename)
+        # Extract JSON from response (handle markdown code blocks)
+        json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
+        if not json_match:
+            log_error(logger, f"[ERROR] Could not parse AI response as JSON: {ai_content[:200]}")
+            return {"status": "error", "message": "Could not parse AI response"}
 
-        os.makedirs(MITE_ANALYSIS_DIR, exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(ai_content)
+        results = json.loads(json_match.group())
 
-        # Extract summary (first paragraph after # heading)
-        summary_match = re.search(r"##\s*Summary\s*\n+(.*?)(?:\n\n|\n##)", ai_content, re.DOTALL)
-        summary = summary_match.group(1).strip() if summary_match else ""
+        classified = 0
+        for result in results:
+            pattern_id = result.get("id")
+            classification = result.get("classification", "").lower()
+            description = result.get("description", "")
 
-        analysis_id = insert_ai_analysis(
-            created_at=datetime.now().isoformat(),
-            source_ip=source_ip,
-            host=host,
-            sample_count=len(samples),
-            markdown_path=filepath,
-            status="success",
-            summary=summary[:500] if summary else None,
-        )
+            if classification not in VALID_CLASSIFICATIONS:
+                log_error(logger, f"[ERROR] Invalid classification '{classification}' for pattern {pattern_id}")
+                continue
 
-        log_info(logger, f"[INFO] AI analysis saved to {filepath}")
-        return {"status": "success", "id": analysis_id, "markdown_path": filepath}
+            update_pattern_classification(pattern_id, classification, description)
+            classified += 1
+            log_info(logger, f"[INFO] Pattern {pattern_id} classified as '{classification}'")
+
+        return {"status": "ok", "classified": classified}
 
     except Exception as e:
-        log_error(logger, f"[ERROR] AI analysis failed: {e}")
-
-        insert_ai_analysis(
-            created_at=datetime.now().isoformat(),
-            source_ip=source_ip,
-            host=host,
-            sample_count=len(samples),
-            markdown_path="",
-            status="failed",
-            summary=str(e)[:500],
-        )
-
+        log_error(logger, f"[ERROR] AI pattern classification failed: {e}")
         return {"status": "error", "message": str(e)}

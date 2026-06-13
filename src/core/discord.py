@@ -37,12 +37,12 @@ def send_discord_message(content):
         return False
 
 
-def format_alert_message(severity, rule_name, host, source_ip, timestamp, message, action):
+def format_alert_message(severity, pattern_text, host, source_ip, timestamp, message, ai_explanation):
     emoji = "🚨" if severity in ("critical", "high") else "⚠️" if severity == "medium" else "ℹ️"
 
     text = f"""{emoji} Mite Alert: {severity.title() if severity else 'Unknown'}
 
-Rule: {rule_name}
+Pattern: {pattern_text}
 Host: {host or 'unknown'}
 Source: {source_ip or 'unknown'}
 Time: {timestamp}
@@ -50,12 +50,12 @@ Time: {timestamp}
 Message:
 {message}
 
-Action:
-{action or 'Review in Mite dashboard.'}"""
+AI Assessment:
+{ai_explanation or 'Pending AI classification.'}"""
 
     return text
 
 
-def send_alert_discord(severity, rule_name, host, source_ip, timestamp, message, action):
-    content = format_alert_message(severity, rule_name, host, source_ip, timestamp, message, action)
+def send_alert_discord(severity, pattern_text, host, source_ip, timestamp, message, ai_explanation):
+    content = format_alert_message(severity, pattern_text, host, source_ip, timestamp, message, ai_explanation)
     return send_discord_message(content)

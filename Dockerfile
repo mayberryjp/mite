@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN cp supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Create persistent volume directories
-RUN mkdir -p /app/data /app/config /app/rules /app/analysis /app/logs
+RUN mkdir -p /app/data /app/logs
 
 # Initialize database and directories on first run
 RUN python -m src.main

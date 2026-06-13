@@ -4,11 +4,12 @@ services:
     image: mayberry4477/mite:latest
     container_name: mite
     restart: unless-stopped
+    ports:
+      - 4060:4060
+      - "1514:1514/udp"
+      - "1515:1515/tcp"
     volumes:
       - /docker/mite/data:/app/data
-      - /docker/mite/config:/app/config
-      - /docker/mite/rules:/app/rules
-      - /docker/mite/analysis:/app/analysis
       - /docker/mite/logs:/app/logs
     environment:
       - MITE_API_HOST=0.0.0.0
@@ -18,17 +19,12 @@ services:
       - MITE_SYSLOG_TCP_HOST=0.0.0.0
       - MITE_SYSLOG_TCP_PORT=1515
       - MITE_DB_PATH=/app/data/Mite.sqlite
-      - MITE_RULES_DIR=/app/rules
-      - MITE_ANALYSIS_DIR=/app/analysis
-      - MITE_CONFIG_DIR=/app/config
       - MITE_LOGS_DIR=/app/logs
       - DISCORD_WEBHOOK_URL=
       - AI_DISCOVERY_ENABLED=false
       - AI_API_BASE_URL=
       - AI_API_KEY=
       - AI_MODEL=
-      - AI_SAMPLE_MIN_COUNT=25
-      - AI_SAMPLE_MAX_LINES=100
       - AI_DISCOVERY_INTERVAL_SECONDS=3600
       - LOG_RETENTION_DAYS=14
       - ALERT_RETENTION_DAYS=30

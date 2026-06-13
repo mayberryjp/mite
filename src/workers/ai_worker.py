@@ -1,44 +1,39 @@
 import logging
 import time
 
-from src.core.config import AI_DISCOVERY_ENABLED, AI_DISCOVERY_INTERVAL_SECONDS, AI_SAMPLE_MIN_COUNT
-from src.core.db import get_unanalyzed_sources
-from src.core.ai_discovery import run_ai_analysis
+from src.core.config import AI_DISCOVERY_ENABLED, AI_DISCOVERY_INTERVAL_SECONDS
+from src.core.db import get_pending_patterns
+from src.core.ai_discovery import classify_patterns
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
+AI_BATCH_SIZE = 20
 
-def run_ai_discovery_cycle():
+
+def run_ai_classification_cycle():
     if not AI_DISCOVERY_ENABLED:
         return
 
-    candidates = get_unanalyzed_sources(min_count=AI_SAMPLE_MIN_COUNT)
-    if not candidates:
-        log_info(logger, "[INFO] No AI discovery candidates found")
+    pending = get_pending_patterns(limit=AI_BATCH_SIZE)
+    if not pending:
+        log_info(logger, "[INFO] No pending patterns to classify")
         return
 
-    log_info(logger, f"[INFO] Found {len(candidates)} AI discovery candidates")
+    log_info(logger, f"[INFO] Classifying {len(pending)} pending patterns")
 
-    for candidate in candidates:
-        try:
-            result = run_ai_analysis(
-                source_ip=candidate["source_ip"],
-                host=candidate["host"],
-            )
-            log_info(logger, f"[INFO] AI analysis result for {candidate['source_ip']}: {result.get('status')}")
-        except Exception as e:
-            log_error(logger, f"[ERROR] AI analysis failed for {candidate['source_ip']}: {e}")
+    result = classify_patterns(pending)
+    log_info(logger, f"[INFO] AI classification result: {result}")
 
 
 if __name__ == "__main__":
-    log_info(logger, "[INFO] AI discovery worker starting, waiting 30 seconds...")
+    log_info(logger, "[INFO] AI classification worker starting, waiting 30 seconds...")
     time.sleep(30)
 
     while True:
         try:
             if AI_DISCOVERY_ENABLED:
-                run_ai_discovery_cycle()
+                run_ai_classification_cycle()
             else:
                 log_info(logger, "[INFO] AI discovery is disabled, sleeping...")
         except Exception as e:

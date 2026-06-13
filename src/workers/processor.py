@@ -7,80 +7,116 @@ from src.core.db import (
     mark_logs_processed,
     upsert_host,
     increment_host_alert_count,
-    check_cooldown,
-    update_cooldown,
     update_alert_discord_sent,
+    get_pattern_by_hash,
+    insert_pattern,
+    increment_pattern_hit,
 )
-from src.core.rule_loader import load_all_rules
-from src.core.rule_engine import match_rule, build_cooldown_key
+from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.core.discord import send_alert_discord
 from src.core.config import DISCORD_WEBHOOK_URL
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
+ALERT_SEVERITIES = {"critical", "high"}
+MIN_MESSAGE_LENGTH = 20
+
+
+def get_effective_classification(pattern):
+    return pattern.get("user_override") or pattern.get("classification") or "pending"
+
 
 def process_logs():
-    rules, errors = load_all_rules()
-    if errors:
-        for err in errors:
-            log_error(logger, f"[ERROR] Rule load error: {err}")
-
-    active_rules = [r for r in rules if r.get("enabled", True)]
-    log_info(logger, f"[INFO] Processing with {len(active_rules)} active rules")
-
     logs = get_unprocessed_logs(limit=500)
     if not logs:
         return
 
     log_info(logger, f"[INFO] Processing {len(logs)} unprocessed logs")
 
-    processed_ids = []
     for log_entry in logs:
-        for rule in active_rules:
-            if match_rule(rule, log_entry):
-                rule_name = rule.get("name", "unknown")
-                severity = rule.get("severity", "info")
-                cooldown_seconds = rule.get("cooldown_seconds", 300)
-                cooldown_key = build_cooldown_key(rule, log_entry)
+        # Track the host
+        upsert_host(
+            log_entry.get("host"),
+            log_entry.get("source_ip"),
+            log_entry["received_at"],
+        )
 
-                alert_id = insert_alert(
-                    created_at=log_entry["received_at"],
-                    log_id=log_entry["id"],
-                    rule_name=rule_name,
-                    severity=severity,
+        # Extract and look up pattern
+        message = log_entry.get("message", "")
+        pattern_text = extract_pattern(message)
+        p_hash = hash_pattern(pattern_text)
+
+        pattern = get_pattern_by_hash(p_hash)
+
+        if pattern:
+            # Known pattern — increment hit count
+            pattern_id = pattern["id"]
+            increment_pattern_hit(pattern_id, log_entry["received_at"])
+        else:
+            # New pattern — insert; classify short messages as noise automatically
+            if len(message.strip()) < MIN_MESSAGE_LENGTH:
+                pattern_id = insert_pattern(
+                    pattern_hash=p_hash,
+                    pattern_text=pattern_text,
+                    sample_message=message,
+                    host=log_entry.get("host"),
+                    program=log_entry.get("program"),
+                    timestamp=log_entry["received_at"],
+                )
+                from src.core.db import update_pattern_classification
+                update_pattern_classification(pattern_id, "noise", "Message too short to be meaningful.")
+                pattern = {"id": pattern_id, "classification": "noise", "user_override": None, "ai_explanation": "Message too short to be meaningful."}
+            else:
+                pattern_id = insert_pattern(
+                    pattern_hash=p_hash,
+                    pattern_text=pattern_text,
+                    sample_message=message,
+                    host=log_entry.get("host"),
+                    program=log_entry.get("program"),
+                    timestamp=log_entry["received_at"],
+                )
+                pattern = {"id": pattern_id, "classification": "pending", "user_override": None, "ai_explanation": None}
+            log_info(logger, f"[INFO] New pattern discovered: {pattern_text[:80]}")
+
+        # Check if this pattern is classified as important
+        effective = get_effective_classification(pattern)
+
+        if effective in ALERT_SEVERITIES:
+            alert_id = insert_alert(
+                created_at=log_entry["received_at"],
+                log_id=log_entry["id"],
+                pattern_id=pattern_id,
+                severity=effective,
+                host=log_entry.get("host"),
+                source_ip=log_entry.get("source_ip"),
+                message=message,
+                reason=pattern.get("ai_explanation", ""),
+                action="",
+            )
+
+            increment_host_alert_count(
+                log_entry.get("host"), log_entry.get("source_ip")
+            )
+
+            # Send Discord notification for critical/high
+            if DISCORD_WEBHOOK_URL and alert_id:
+                success = send_alert_discord(
+                    severity=effective,
+                    pattern_text=pattern_text,
                     host=log_entry.get("host"),
                     source_ip=log_entry.get("source_ip"),
-                    message=log_entry["message"],
-                    reason=rule.get("description", ""),
-                    action=rule.get("action", ""),
+                    timestamp=log_entry["received_at"],
+                    message=message,
+                    ai_explanation=pattern.get("ai_explanation", ""),
                 )
+                if success:
+                    update_alert_discord_sent(alert_id)
 
-                increment_host_alert_count(
-                    log_entry.get("host"), log_entry.get("source_ip")
-                )
+        # Mark log as processed with pattern link
+        mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
 
-                # Send Discord if enabled and not in cooldown
-                if rule.get("discord", False) and DISCORD_WEBHOOK_URL:
-                    in_cooldown = check_cooldown(rule_name, cooldown_key, cooldown_seconds)
-                    if not in_cooldown:
-                        success = send_alert_discord(
-                            severity=severity,
-                            rule_name=rule_name,
-                            host=log_entry.get("host"),
-                            source_ip=log_entry.get("source_ip"),
-                            timestamp=log_entry["received_at"],
-                            message=log_entry["message"],
-                            action=rule.get("action", ""),
-                        )
-                        if success and alert_id:
-                            update_alert_discord_sent(alert_id)
-                            update_cooldown(rule_name, cooldown_key)
-
-        processed_ids.append(log_entry["id"])
-
-    mark_logs_processed(processed_ids)
-    log_info(logger, f"[INFO] Marked {len(processed_ids)} logs as processed")
+    log_info(logger, f"[INFO] Processed {len(logs)} logs")
 
 
 if __name__ == "__main__":

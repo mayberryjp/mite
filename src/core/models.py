@@ -11,14 +11,15 @@ CONST_CREATE_LOGS_SQL = """
         message TEXT NOT NULL,
         raw_message TEXT NOT NULL,
         processed INTEGER DEFAULT 0,
-        ai_candidate INTEGER DEFAULT 0
+        pattern_id INTEGER,
+        FOREIGN KEY(pattern_id) REFERENCES patterns(id)
     );
     CREATE INDEX IF NOT EXISTS idx_logs_received_at ON logs(received_at);
     CREATE INDEX IF NOT EXISTS idx_logs_host ON logs(host);
     CREATE INDEX IF NOT EXISTS idx_logs_source_ip ON logs(source_ip);
     CREATE INDEX IF NOT EXISTS idx_logs_program ON logs(program);
     CREATE INDEX IF NOT EXISTS idx_logs_processed ON logs(processed);
-    CREATE INDEX IF NOT EXISTS idx_logs_ai_candidate ON logs(ai_candidate);
+    CREATE INDEX IF NOT EXISTS idx_logs_pattern_id ON logs(pattern_id);
 """
 
 CONST_CREATE_ALERTS_SQL = """
@@ -26,7 +27,7 @@ CONST_CREATE_ALERTS_SQL = """
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at TEXT NOT NULL,
         log_id INTEGER,
-        rule_name TEXT NOT NULL,
+        pattern_id INTEGER,
         severity TEXT NOT NULL,
         host TEXT,
         source_ip TEXT,
@@ -34,12 +35,13 @@ CONST_CREATE_ALERTS_SQL = """
         reason TEXT,
         action TEXT,
         discord_sent INTEGER DEFAULT 0,
-        FOREIGN KEY(log_id) REFERENCES logs(id)
+        FOREIGN KEY(log_id) REFERENCES logs(id),
+        FOREIGN KEY(pattern_id) REFERENCES patterns(id)
     );
     CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at);
     CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
     CREATE INDEX IF NOT EXISTS idx_alerts_host ON alerts(host);
-    CREATE INDEX IF NOT EXISTS idx_alerts_rule_name ON alerts(rule_name);
+    CREATE INDEX IF NOT EXISTS idx_alerts_pattern_id ON alerts(pattern_id);
 """
 
 CONST_CREATE_HOSTS_SQL = """
@@ -56,25 +58,21 @@ CONST_CREATE_HOSTS_SQL = """
     CREATE INDEX IF NOT EXISTS idx_hosts_source_ip ON hosts(source_ip);
 """
 
-CONST_CREATE_RULE_COOLDOWNS_SQL = """
-    CREATE TABLE IF NOT EXISTS rule_cooldowns (
-        rule_name TEXT NOT NULL,
-        cooldown_key TEXT NOT NULL,
-        last_sent_at TEXT NOT NULL,
-        PRIMARY KEY(rule_name, cooldown_key)
-    );
-"""
-
-CONST_CREATE_AI_ANALYSES_SQL = """
-    CREATE TABLE IF NOT EXISTS ai_analyses (
+CONST_CREATE_PATTERNS_SQL = """
+    CREATE TABLE IF NOT EXISTS patterns (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT NOT NULL,
-        source_ip TEXT,
+        pattern_hash TEXT NOT NULL UNIQUE,
+        pattern_text TEXT NOT NULL,
+        sample_message TEXT NOT NULL,
+        classification TEXT DEFAULT 'pending',
+        ai_explanation TEXT,
+        user_override TEXT,
         host TEXT,
-        sample_count INTEGER NOT NULL,
-        markdown_path TEXT NOT NULL,
-        status TEXT NOT NULL,
-        summary TEXT
+        program TEXT,
+        hit_count INTEGER DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_ai_analyses_status ON ai_analyses(status);
+    CREATE INDEX IF NOT EXISTS idx_patterns_hash ON patterns(pattern_hash);
+    CREATE INDEX IF NOT EXISTS idx_patterns_classification ON patterns(classification);
 """

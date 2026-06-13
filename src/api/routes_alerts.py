@@ -18,12 +18,12 @@ def setup_alerts_routes(app):
             severity = request.params.get("severity")
             host = request.params.get("host")
             source_ip = request.params.get("source_ip")
-            rule_name = request.params.get("rule_name")
+            pattern_id = request.params.get("pattern_id")
             search = request.params.get("search")
 
             items, total = get_alerts(
                 limit=limit, offset=offset, severity=severity,
-                host=host, source_ip=source_ip, rule_name=rule_name,
+                host=host, source_ip=source_ip, pattern_id=pattern_id,
                 search=search,
             )
 

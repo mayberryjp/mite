@@ -6,10 +6,9 @@ import time
 from src.core.config import MITE_DB_PATH
 from src.core.models import (
     CONST_CREATE_ALERTS_SQL,
-    CONST_CREATE_AI_ANALYSES_SQL,
     CONST_CREATE_HOSTS_SQL,
     CONST_CREATE_LOGS_SQL,
-    CONST_CREATE_RULE_COOLDOWNS_SQL,
+    CONST_CREATE_PATTERNS_SQL,
 )
 from src.utils.locallogging import log_error, log_info
 
@@ -48,11 +47,10 @@ def init_database():
         conn.execute("PRAGMA busy_timeout = 10000")
         cursor = conn.cursor()
         for sql in [
+            CONST_CREATE_PATTERNS_SQL,
             CONST_CREATE_LOGS_SQL,
             CONST_CREATE_ALERTS_SQL,
             CONST_CREATE_HOSTS_SQL,
-            CONST_CREATE_RULE_COOLDOWNS_SQL,
-            CONST_CREATE_AI_ANALYSES_SQL,
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
@@ -123,31 +121,31 @@ def get_unprocessed_logs(limit=500):
         disconnect_from_db(conn)
 
 
-def mark_logs_processed(log_ids):
+def mark_logs_processed(log_ids, pattern_id=None):
     if not log_ids:
         return
-    conn = connect_to_db()
-    if not conn:
-        return
-    try:
-        cursor = conn.cursor()
-        placeholders = ",".join("?" for _ in log_ids)
-        cursor.execute(f"UPDATE logs SET processed = 1 WHERE id IN ({placeholders})", log_ids)
-        conn.commit()
-    finally:
-        disconnect_from_db(conn)
+    def _mark():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" for _ in log_ids)
+            if pattern_id is not None:
+                cursor.execute(
+                    f"UPDATE logs SET processed = 1, pattern_id = ? WHERE id IN ({placeholders})",
+                    [pattern_id] + list(log_ids),
+                )
+            else:
+                cursor.execute(
+                    f"UPDATE logs SET processed = 1 WHERE id IN ({placeholders})",
+                    list(log_ids),
+                )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
 
-
-def mark_log_ai_candidate(log_id):
-    conn = connect_to_db()
-    if not conn:
-        return
-    try:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE logs SET ai_candidate = 1 WHERE id = ?", (log_id,))
-        conn.commit()
-    finally:
-        disconnect_from_db(conn)
+    execute_with_retry(_mark)
 
 
 def get_logs(limit=100, offset=0, host=None, source_ip=None, program=None,
@@ -190,7 +188,7 @@ def get_logs(limit=100, offset=0, host=None, source_ip=None, program=None,
         total = cursor.fetchone()[0]
 
         cursor.execute(
-            f"SELECT id, received_at, source_ip, host, facility, severity, program, pid, message FROM logs {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            f"SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs {where} ORDER BY id DESC LIMIT ? OFFSET ?",
             params + [limit, offset],
         )
         rows = cursor.fetchall()
@@ -198,7 +196,7 @@ def get_logs(limit=100, offset=0, host=None, source_ip=None, program=None,
             {
                 "id": r[0], "received_at": r[1], "source_ip": r[2], "host": r[3],
                 "facility": r[4], "severity": r[5], "program": r[6], "pid": r[7],
-                "message": r[8],
+                "message": r[8], "pattern_id": r[9],
             }
             for r in rows
         ]
@@ -214,7 +212,7 @@ def get_recent_logs(after_id=0, limit=50):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message FROM logs WHERE id > ? ORDER BY id DESC LIMIT ?",
+            "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs WHERE id > ? ORDER BY id DESC LIMIT ?",
             (after_id, limit),
         )
         rows = cursor.fetchall()
@@ -222,7 +220,7 @@ def get_recent_logs(after_id=0, limit=50):
             {
                 "id": r[0], "received_at": r[1], "source_ip": r[2], "host": r[3],
                 "facility": r[4], "severity": r[5], "program": r[6], "pid": r[7],
-                "message": r[8],
+                "message": r[8], "pattern_id": r[9],
             }
             for r in rows
         ]
@@ -230,33 +228,206 @@ def get_recent_logs(after_id=0, limit=50):
         disconnect_from_db(conn)
 
 
-def get_log_samples_for_source(source_ip=None, host=None, limit=100):
+# --- Pattern operations ---
+
+def get_pattern_by_hash(pattern_hash):
+    conn = connect_to_db()
+    if not conn:
+        return None
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, pattern_hash, pattern_text, sample_message, classification, ai_explanation, user_override, host, program, hit_count, first_seen_at, last_seen_at FROM patterns WHERE pattern_hash = ?",
+            (pattern_hash,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "pattern_hash": row[1], "pattern_text": row[2],
+            "sample_message": row[3], "classification": row[4],
+            "ai_explanation": row[5], "user_override": row[6],
+            "host": row[7], "program": row[8], "hit_count": row[9],
+            "first_seen_at": row[10], "last_seen_at": row[11],
+        }
+    finally:
+        disconnect_from_db(conn)
+
+
+def insert_pattern(pattern_hash, pattern_text, sample_message, host=None, program=None, timestamp=None):
+    def _insert():
+        conn = connect_to_db()
+        if not conn:
+            return None
+        try:
+            cursor = conn.cursor()
+            ts = timestamp or ""
+            cursor.execute(
+                """INSERT INTO patterns (pattern_hash, pattern_text, sample_message, host, program, first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (pattern_hash, pattern_text, sample_message, host, program, ts, ts),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            disconnect_from_db(conn)
+
+    return execute_with_retry(_insert)
+
+
+def increment_pattern_hit(pattern_id, timestamp):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET hit_count = hit_count + 1, last_seen_at = ? WHERE id = ?",
+                (timestamp, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
+def get_pending_patterns(limit=50):
     conn = connect_to_db()
     if not conn:
         return []
     try:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, pattern_hash, pattern_text, sample_message, host, program, hit_count, first_seen_at, last_seen_at FROM patterns WHERE classification = 'pending' ORDER BY hit_count DESC LIMIT ?",
+            (limit,),
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0], "pattern_hash": r[1], "pattern_text": r[2],
+                "sample_message": r[3], "host": r[4], "program": r[5],
+                "hit_count": r[6], "first_seen_at": r[7], "last_seen_at": r[8],
+            }
+            for r in rows
+        ]
+    finally:
+        disconnect_from_db(conn)
+
+
+def update_pattern_classification(pattern_id, classification, ai_explanation=None):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET classification = ?, ai_explanation = ? WHERE id = ?",
+                (classification, ai_explanation, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
+def update_pattern_user_override(pattern_id, user_override):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET user_override = ? WHERE id = ?",
+                (user_override, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
+def get_all_patterns(limit=100, offset=0, classification=None):
+    conn = connect_to_db()
+    if not conn:
+        return [], 0
+    try:
+        cursor = conn.cursor()
         conditions = []
         params = []
-        if source_ip:
-            conditions.append("source_ip = ?")
-            params.append(source_ip)
-        if host:
-            conditions.append("host = ?")
-            params.append(host)
-        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+        if classification:
+            conditions.append("classification = ?")
+            params.append(classification)
+
+        where = ""
+        if conditions:
+            where = "WHERE " + " AND ".join(conditions)
+
+        cursor.execute(f"SELECT COUNT(*) FROM patterns {where}", params)
+        total = cursor.fetchone()[0]
+
         cursor.execute(
-            f"SELECT DISTINCT message FROM logs {where} ORDER BY id DESC LIMIT ?",
-            params + [limit],
+            f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
+                       ai_explanation, user_override, host, program, hit_count,
+                       first_seen_at, last_seen_at
+                FROM patterns {where}
+                ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
+            params + [limit, offset],
         )
-        return [r[0] for r in cursor.fetchall()]
+        rows = cursor.fetchall()
+        items = [
+            {
+                "id": r[0], "pattern_hash": r[1], "pattern_text": r[2],
+                "sample_message": r[3], "classification": r[4],
+                "ai_explanation": r[5], "user_override": r[6],
+                "host": r[7], "program": r[8], "hit_count": r[9],
+                "first_seen_at": r[10], "last_seen_at": r[11],
+                "effective_classification": r[6] if r[6] else r[4],
+            }
+            for r in rows
+        ]
+        return items, total
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_pattern_by_id(pattern_id):
+    conn = connect_to_db()
+    if not conn:
+        return None
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT id, pattern_hash, pattern_text, sample_message, classification,
+                      ai_explanation, user_override, host, program, hit_count,
+                      first_seen_at, last_seen_at
+               FROM patterns WHERE id = ?""",
+            (pattern_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "pattern_hash": row[1], "pattern_text": row[2],
+            "sample_message": row[3], "classification": row[4],
+            "ai_explanation": row[5], "user_override": row[6],
+            "host": row[7], "program": row[8], "hit_count": row[9],
+            "first_seen_at": row[10], "last_seen_at": row[11],
+            "effective_classification": row[6] if row[6] else row[4],
+        }
     finally:
         disconnect_from_db(conn)
 
 
 # --- Alert operations ---
 
-def insert_alert(created_at, log_id, rule_name, severity, host, source_ip, message, reason, action):
+def insert_alert(created_at, log_id, pattern_id, severity, host, source_ip, message, reason, action):
     def _insert():
         conn = connect_to_db()
         if not conn:
@@ -264,9 +435,9 @@ def insert_alert(created_at, log_id, rule_name, severity, host, source_ip, messa
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO alerts (created_at, log_id, rule_name, severity, host, source_ip, message, reason, action)
+                """INSERT INTO alerts (created_at, log_id, pattern_id, severity, host, source_ip, message, reason, action)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (created_at, log_id, rule_name, severity, host, source_ip, message, reason, action),
+                (created_at, log_id, pattern_id, severity, host, source_ip, message, reason, action),
             )
             conn.commit()
             return cursor.lastrowid
@@ -289,7 +460,7 @@ def update_alert_discord_sent(alert_id):
 
 
 def get_alerts(limit=100, offset=0, severity=None, host=None, source_ip=None,
-               rule_name=None, search=None):
+               pattern_id=None, search=None):
     conn = connect_to_db()
     if not conn:
         return [], 0
@@ -299,38 +470,44 @@ def get_alerts(limit=100, offset=0, severity=None, host=None, source_ip=None,
         params = []
 
         if severity:
-            conditions.append("severity = ?")
+            conditions.append("a.severity = ?")
             params.append(severity)
         if host:
-            conditions.append("host = ?")
+            conditions.append("a.host = ?")
             params.append(host)
         if source_ip:
-            conditions.append("source_ip = ?")
+            conditions.append("a.source_ip = ?")
             params.append(source_ip)
-        if rule_name:
-            conditions.append("rule_name = ?")
-            params.append(rule_name)
+        if pattern_id:
+            conditions.append("a.pattern_id = ?")
+            params.append(pattern_id)
         if search:
-            conditions.append("message LIKE ?")
+            conditions.append("a.message LIKE ?")
             params.append(f"%{search}%")
 
         where = ""
         if conditions:
             where = "WHERE " + " AND ".join(conditions)
 
-        cursor.execute(f"SELECT COUNT(*) FROM alerts {where}", params)
+        cursor.execute(f"SELECT COUNT(*) FROM alerts a {where}", params)
         total = cursor.fetchone()[0]
 
         cursor.execute(
-            f"SELECT id, created_at, log_id, rule_name, severity, host, source_ip, message, reason, action, discord_sent FROM alerts {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            f"""SELECT a.id, a.created_at, a.log_id, a.pattern_id, a.severity, a.host,
+                       a.source_ip, a.message, a.reason, a.action, a.discord_sent,
+                       p.pattern_text
+                FROM alerts a
+                LEFT JOIN patterns p ON a.pattern_id = p.id
+                {where} ORDER BY a.id DESC LIMIT ? OFFSET ?""",
             params + [limit, offset],
         )
         rows = cursor.fetchall()
         items = [
             {
-                "id": r[0], "created_at": r[1], "log_id": r[2], "rule_name": r[3],
+                "id": r[0], "created_at": r[1], "log_id": r[2], "pattern_id": r[3],
                 "severity": r[4], "host": r[5], "source_ip": r[6], "message": r[7],
                 "reason": r[8], "action": r[9], "discord_sent": bool(r[10]),
+                "pattern_text": r[11],
             }
             for r in rows
         ]
@@ -399,129 +576,6 @@ def get_all_hosts():
         disconnect_from_db(conn)
 
 
-# --- Cooldown operations ---
-
-def check_cooldown(rule_name, cooldown_key, cooldown_seconds):
-    conn = connect_to_db()
-    if not conn:
-        return False
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT last_sent_at FROM rule_cooldowns WHERE rule_name = ? AND cooldown_key = ?",
-            (rule_name, cooldown_key),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return False
-        from datetime import datetime, timedelta
-        last_sent = datetime.fromisoformat(row[0])
-        return (datetime.now() - last_sent).total_seconds() < cooldown_seconds
-    finally:
-        disconnect_from_db(conn)
-
-
-def update_cooldown(rule_name, cooldown_key):
-    from datetime import datetime
-    conn = connect_to_db()
-    if not conn:
-        return
-    try:
-        cursor = conn.cursor()
-        now = datetime.now().isoformat()
-        cursor.execute(
-            """INSERT INTO rule_cooldowns (rule_name, cooldown_key, last_sent_at)
-               VALUES (?, ?, ?)
-               ON CONFLICT(rule_name, cooldown_key)
-               DO UPDATE SET last_sent_at = ?""",
-            (rule_name, cooldown_key, now, now),
-        )
-        conn.commit()
-    finally:
-        disconnect_from_db(conn)
-
-
-# --- AI analyses operations ---
-
-def insert_ai_analysis(created_at, source_ip, host, sample_count, markdown_path, status, summary=None):
-    conn = connect_to_db()
-    if not conn:
-        return None
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """INSERT INTO ai_analyses (created_at, source_ip, host, sample_count, markdown_path, status, summary)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (created_at, source_ip, host, sample_count, markdown_path, status, summary),
-        )
-        conn.commit()
-        return cursor.lastrowid
-    finally:
-        disconnect_from_db(conn)
-
-
-def get_ai_analyses():
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, created_at, source_ip, host, sample_count, markdown_path, status, summary FROM ai_analyses ORDER BY id DESC"
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "id": r[0], "created_at": r[1], "source_ip": r[2], "host": r[3],
-                "sample_count": r[4], "markdown_path": r[5], "status": r[6], "summary": r[7],
-            }
-            for r in rows
-        ]
-    finally:
-        disconnect_from_db(conn)
-
-
-def get_ai_analysis_by_id(analysis_id):
-    conn = connect_to_db()
-    if not conn:
-        return None
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, created_at, source_ip, host, sample_count, markdown_path, status, summary FROM ai_analyses WHERE id = ?",
-            (analysis_id,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None
-        return {
-            "id": row[0], "created_at": row[1], "source_ip": row[2], "host": row[3],
-            "sample_count": row[4], "markdown_path": row[5], "status": row[6], "summary": row[7],
-        }
-    finally:
-        disconnect_from_db(conn)
-
-
-def get_unanalyzed_sources(min_count=25):
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """SELECT h.source_ip, h.host, h.log_count
-               FROM hosts h
-               LEFT JOIN ai_analyses a ON h.source_ip = a.source_ip
-               WHERE a.id IS NULL AND h.log_count >= ?
-               ORDER BY h.log_count DESC""",
-            (min_count,),
-        )
-        rows = cursor.fetchall()
-        return [{"source_ip": r[0], "host": r[1], "log_count": r[2]} for r in rows]
-    finally:
-        disconnect_from_db(conn)
-
-
 # --- Stats operations ---
 
 def get_stats():
@@ -556,10 +610,16 @@ def get_stats():
         )
         top_hosts = [{"source_ip": r[0], "host": r[1], "log_count": r[2]} for r in cursor.fetchall()]
 
+        cursor.execute("SELECT COUNT(*) FROM patterns")
+        total_patterns = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM patterns WHERE classification = 'pending'")
+        pending_patterns = cursor.fetchone()[0]
+
         cursor.execute(
-            "SELECT rule_name, COUNT(*) as cnt FROM alerts GROUP BY rule_name ORDER BY cnt DESC LIMIT 10"
+            "SELECT classification, COUNT(*) as cnt FROM patterns GROUP BY classification ORDER BY cnt DESC"
         )
-        top_rules = [{"rule_name": r[0], "count": r[1]} for r in cursor.fetchall()]
+        pattern_breakdown = [{"classification": r[0], "count": r[1]} for r in cursor.fetchall()]
 
         db_size = 0
         if os.path.exists(MITE_DB_PATH):
@@ -572,7 +632,9 @@ def get_stats():
             "alerts_last_hour": alerts_last_hour,
             "alerts_last_24h": alerts_last_24h,
             "top_hosts": top_hosts,
-            "top_alert_rules": top_rules,
+            "total_patterns": total_patterns,
+            "pending_patterns": pending_patterns,
+            "pattern_breakdown": pattern_breakdown,
             "database_size_bytes": db_size,
             "ai_enabled": AI_DISCOVERY_ENABLED,
         }
