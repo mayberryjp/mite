@@ -27,7 +27,21 @@ from src.utils.locallogging import log_error, log_info
 logger = logging.getLogger(__name__)
 
 ALERT_SEVERITIES = {"critical", "high"}
-MIN_MESSAGE_LENGTH = 20
+MIN_MESSAGE_LENGTH = 50
+
+
+def _is_meaningful_message(message):
+    """Check if a message has enough real content to be worth classifying."""
+    # Strip the message
+    msg = message.strip()
+    if len(msg) < MIN_MESSAGE_LENGTH:
+        return False
+    # Remove timestamps, IPs, dashes, colons, plus signs, and whitespace
+    # to see if there's any real content left
+    stripped = re.sub(r'[\d:.+\-/T\s]+', ' ', msg).strip()
+    # Count actual alphabetic words (not single chars)
+    words = [w for w in stripped.split() if len(w) > 1 and any(c.isalpha() for c in w)]
+    return len(words) >= 3
 
 # Cache of compiled regexes, refreshed periodically
 _regex_cache = []
@@ -109,8 +123,8 @@ def process_log(log_entry):
             pattern_id = existing["id"]
             increment_pattern_hit(pattern_id, log_entry["received_at"])
             pattern = existing
-        elif len(message.strip()) < MIN_MESSAGE_LENGTH:
-            # Too short to be meaningful — auto-classify as noise
+        elif not _is_meaningful_message(message):
+            # Not enough real content — auto-classify as noise
             pattern_id = insert_pattern(
                 pattern_hash=msg_hash,
                 pattern_text=message,
@@ -119,9 +133,9 @@ def process_log(log_entry):
                 program=log_entry.get("program"),
                 timestamp=log_entry["received_at"],
             )
-            update_pattern_classification(pattern_id, "noise", "Message too short to be meaningful.")
-            pattern = {"id": pattern_id, "classification": "noise", "user_override": None, "ai_explanation": "Message too short to be meaningful."}
-            log_info(logger, f"[INFO] Short message auto-classified as noise: {message[:60]}")
+            update_pattern_classification(pattern_id, "noise", "Message has insufficient content to classify.")
+            pattern = {"id": pattern_id, "classification": "noise", "user_override": None, "ai_explanation": "Message has insufficient content to classify."}
+            log_info(logger, f"[INFO] Low-content message auto-classified as noise: {message[:60]}")
         else:
             # Step 3: New pattern — insert then BLOCK and send to AI
             pattern_id = insert_pattern(
