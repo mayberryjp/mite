@@ -1,21 +1,18 @@
 version: "3"
 services:
-  Mite:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: Mite
+  mite:
+    image: mayberry4477/mite:latest
+    container_name: mite
     restart: unless-stopped
-    network_mode: host
     volumes:
-      - ./data:/app/data
-      - ./config:/app/config
-      - ./rules:/app/rules
-      - ./analysis:/app/analysis
-      - ./logs:/app/logs
+      - /docker/mite/data:/app/data
+      - /docker/mite/config:/app/config
+      - /docker/mite/rules:/app/rules
+      - /docker/mite/analysis:/app/analysis
+      - /docker/mite/logs:/app/logs
     environment:
       - MITE_API_HOST=0.0.0.0
-      - MITE_API_PORT=8080
+      - MITE_API_PORT=4060
       - MITE_SYSLOG_UDP_HOST=0.0.0.0
       - MITE_SYSLOG_UDP_PORT=1514
       - MITE_SYSLOG_TCP_HOST=0.0.0.0

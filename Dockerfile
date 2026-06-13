@@ -2,15 +2,17 @@ FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /Mite
 
-COPY requirements.txt .
+# Clone the repository
+RUN git clone --depth 1 --branch main https://github.com/mayberryjp/mite.git .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/ ./src/
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+RUN cp supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Create persistent volume directories
 RUN mkdir -p /app/data /app/config /app/rules /app/analysis /app/logs
