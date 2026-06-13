@@ -67,6 +67,8 @@ CONST_CREATE_PATTERNS_SQL = """
         classification TEXT DEFAULT 'pending',
         ai_explanation TEXT,
         user_override TEXT,
+        match_regex TEXT,
+        title TEXT,
         host TEXT,
         program TEXT,
         hit_count INTEGER DEFAULT 1,
@@ -75,4 +77,17 @@ CONST_CREATE_PATTERNS_SQL = """
     );
     CREATE INDEX IF NOT EXISTS idx_patterns_hash ON patterns(pattern_hash);
     CREATE INDEX IF NOT EXISTS idx_patterns_classification ON patterns(classification);
+"""
+
+CONST_CREATE_PATTERN_STATS_SQL = """
+    CREATE TABLE IF NOT EXISTS pattern_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern_id INTEGER NOT NULL,
+        hour_bucket TEXT NOT NULL,
+        hit_count INTEGER DEFAULT 1,
+        UNIQUE(pattern_id, hour_bucket),
+        FOREIGN KEY(pattern_id) REFERENCES patterns(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pattern_stats_pattern_id ON pattern_stats(pattern_id);
+    CREATE INDEX IF NOT EXISTS idx_pattern_stats_hour_bucket ON pattern_stats(hour_bucket);
 """

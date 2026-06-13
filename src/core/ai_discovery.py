@@ -22,7 +22,7 @@ VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
 
 AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls and network devices. Please help me understand the following logs and whether they are important or not and what the meaning of each log is.
 
-Each log pattern below has dynamic values (IPs, timestamps, numbers) replaced with placeholders like <IP>, <N>, <TS>, etc. I need you to:
+Each log pattern below includes a sample of the original log message. I need you to:
 
 1. Explain what this log pattern means in plain language — what system/service produces it, what event it represents, and whether it indicates a problem.
 2. Classify its importance for alerting:
@@ -31,16 +31,23 @@ Each log pattern below has dynamic values (IPs, timestamps, numbers) replaced wi
    - "medium": Worth monitoring but not urgent (e.g., unusual service restarts, config warnings)
    - "low": Informational, normal operations (e.g., scheduled tasks completed, routine state changes)
    - "noise": Routine/expected traffic, not worth alerting on (e.g., firewall blocks on common scan ports, NTP sync, DHCP renewals)
+3. Create a Python-compatible regular expression that robustly matches this type of log message. The regex should:
+   - Match the static/structural parts of the log (keywords, field names, program names, log format)
+   - Use \\S+ or .+? or \\d+ for dynamic values (IPs, ports, MACs, timestamps, counters, hex values)
+   - Be specific enough to only match this type of log, not overly broad
+   - Work with re.search() (does not need to match the full line)
 
 Respond ONLY with a JSON array. Each element must have:
 - "id": the pattern ID (integer, from the input)
 - "classification": one of "critical", "high", "medium", "low", "noise"
 - "description": 2-4 sentences explaining what this log pattern means, what produces it, and why it matters or doesn't matter. Write as if explaining to a fellow engineer.
+- "match_regex": a Python regex string that matches this type of log message
+- "title": a short human-readable title for this log type (max 25 characters, e.g. "SSH Brute Force", "FW Block TCP", "DHCP Renewal")
 
 Example response:
 [
-  {{"id": 1, "classification": "high", "description": "This log indicates repeated failed SSH login attempts, typically produced by the sshd daemon. This usually means someone or a bot is attempting to brute-force credentials on your server. You should investigate the source IP and consider blocking it or ensuring fail2ban is active."}},
-  {{"id": 2, "classification": "noise", "description": "This is a standard firewall deny log for an incoming connection on a commonly scanned port. These are routine internet background noise from automated scanners and do not indicate a targeted attack. Safe to ignore unless the volume is unusually high."}}
+  {{"id": 1, "classification": "high", "title": "SSH Brute Force", "description": "This log indicates repeated failed SSH login attempts, typically produced by the sshd daemon. This usually means someone or a bot is attempting to brute-force credentials on your server. You should investigate the source IP and consider blocking it or ensuring fail2ban is active.", "match_regex": "sshd.*Failed password for \\\\S+ from \\\\S+"}},
+  {{"id": 2, "classification": "noise", "title": "FW Block TCP", "description": "This is a standard firewall deny log for an incoming connection on a commonly scanned port. These are routine internet background noise from automated scanners and do not indicate a targeted attack. Safe to ignore unless the volume is unusually high.", "match_regex": "filterlog.*match,block,in,\\\\d+,.*,tcp,"}}
 ]
 
 Patterns to analyze:
@@ -104,12 +111,22 @@ def classify_patterns(patterns):
             pattern_id = result.get("id")
             classification = result.get("classification", "").lower()
             description = result.get("description", "")
+            match_regex = result.get("match_regex", "")
+            title = result.get("title", "")[:25] if result.get("title") else None
 
             if classification not in VALID_CLASSIFICATIONS:
                 log_error(logger, f"[ERROR] Invalid classification '{classification}' for pattern {pattern_id}")
                 continue
 
-            update_pattern_classification(pattern_id, classification, description)
+            # Validate the regex compiles
+            if match_regex:
+                try:
+                    re.compile(match_regex)
+                except re.error as e:
+                    log_error(logger, f"[ERROR] Invalid regex from AI for pattern {pattern_id}: {e}")
+                    match_regex = ""
+
+            update_pattern_classification(pattern_id, classification, description, match_regex or None, title)
             classified += 1
             log_info(logger, f"[INFO] Pattern {pattern_id} classified as '{classification}'")
 
@@ -118,3 +135,15 @@ def classify_patterns(patterns):
     except Exception as e:
         log_error(logger, f"[ERROR] AI pattern classification failed: {e}")
         return {"status": "error", "message": str(e)}
+
+
+def classify_single_pattern(pattern):
+    """Classify a single pattern immediately. Returns the updated pattern dict or None on failure."""
+    if not AI_DISCOVERY_ENABLED or not AI_API_BASE_URL or not AI_API_KEY:
+        return None
+
+    result = classify_patterns([pattern])
+    if result.get("classified", 0) > 0:
+        from src.core.db import get_pattern_by_id
+        return get_pattern_by_id(pattern["id"])
+    return None

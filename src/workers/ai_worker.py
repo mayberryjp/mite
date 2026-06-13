@@ -12,6 +12,7 @@ AI_BATCH_SIZE = 20
 
 
 def run_ai_classification_cycle():
+    """Retry classification for any patterns that failed inline classification."""
     if not AI_DISCOVERY_ENABLED:
         return
 

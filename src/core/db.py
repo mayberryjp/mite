@@ -9,6 +9,7 @@ from src.core.models import (
     CONST_CREATE_HOSTS_SQL,
     CONST_CREATE_LOGS_SQL,
     CONST_CREATE_PATTERNS_SQL,
+    CONST_CREATE_PATTERN_STATS_SQL,
 )
 from src.utils.locallogging import log_error, log_info
 
@@ -51,6 +52,7 @@ def init_database():
             CONST_CREATE_LOGS_SQL,
             CONST_CREATE_ALERTS_SQL,
             CONST_CREATE_HOSTS_SQL,
+            CONST_CREATE_PATTERN_STATS_SQL,
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
@@ -237,7 +239,7 @@ def get_pattern_by_hash(pattern_hash):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, pattern_hash, pattern_text, sample_message, classification, ai_explanation, user_override, host, program, hit_count, first_seen_at, last_seen_at FROM patterns WHERE pattern_hash = ?",
+            "SELECT id, pattern_hash, pattern_text, sample_message, classification, ai_explanation, user_override, match_regex, title, host, program, hit_count, first_seen_at, last_seen_at FROM patterns WHERE pattern_hash = ?",
             (pattern_hash,),
         )
         row = cursor.fetchone()
@@ -247,8 +249,9 @@ def get_pattern_by_hash(pattern_hash):
             "id": row[0], "pattern_hash": row[1], "pattern_text": row[2],
             "sample_message": row[3], "classification": row[4],
             "ai_explanation": row[5], "user_override": row[6],
-            "host": row[7], "program": row[8], "hit_count": row[9],
-            "first_seen_at": row[10], "last_seen_at": row[11],
+            "match_regex": row[7], "title": row[8],
+            "host": row[9], "program": row[10], "hit_count": row[11],
+            "first_seen_at": row[12], "last_seen_at": row[13],
         }
     finally:
         disconnect_from_db(conn)
@@ -316,7 +319,7 @@ def get_pending_patterns(limit=50):
         disconnect_from_db(conn)
 
 
-def update_pattern_classification(pattern_id, classification, ai_explanation=None):
+def update_pattern_classification(pattern_id, classification, ai_explanation=None, match_regex=None, title=None):
     def _update():
         conn = connect_to_db()
         if not conn:
@@ -324,8 +327,8 @@ def update_pattern_classification(pattern_id, classification, ai_explanation=Non
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE patterns SET classification = ?, ai_explanation = ? WHERE id = ?",
-                (classification, ai_explanation, pattern_id),
+                "UPDATE patterns SET classification = ?, ai_explanation = ?, match_regex = ?, title = ? WHERE id = ?",
+                (classification, ai_explanation, match_regex, title, pattern_id),
             )
             conn.commit()
         finally:
@@ -344,6 +347,42 @@ def update_pattern_user_override(pattern_id, user_override):
             cursor.execute(
                 "UPDATE patterns SET user_override = ? WHERE id = ?",
                 (user_override, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
+def update_pattern_regex(pattern_id, match_regex):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET match_regex = ? WHERE id = ?",
+                (match_regex, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
+def update_pattern_title(pattern_id, title):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET title = ? WHERE id = ?",
+                (title, pattern_id),
             )
             conn.commit()
         finally:
@@ -374,7 +413,7 @@ def get_all_patterns(limit=100, offset=0, classification=None):
 
         cursor.execute(
             f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
-                       ai_explanation, user_override, host, program, hit_count,
+                       ai_explanation, user_override, match_regex, title, host, program, hit_count,
                        first_seen_at, last_seen_at
                 FROM patterns {where}
                 ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
@@ -386,8 +425,9 @@ def get_all_patterns(limit=100, offset=0, classification=None):
                 "id": r[0], "pattern_hash": r[1], "pattern_text": r[2],
                 "sample_message": r[3], "classification": r[4],
                 "ai_explanation": r[5], "user_override": r[6],
-                "host": r[7], "program": r[8], "hit_count": r[9],
-                "first_seen_at": r[10], "last_seen_at": r[11],
+                "match_regex": r[7], "title": r[8],
+                "host": r[9], "program": r[10], "hit_count": r[11],
+                "first_seen_at": r[12], "last_seen_at": r[13],
                 "effective_classification": r[6] if r[6] else r[4],
             }
             for r in rows
@@ -405,7 +445,7 @@ def get_pattern_by_id(pattern_id):
         cursor = conn.cursor()
         cursor.execute(
             """SELECT id, pattern_hash, pattern_text, sample_message, classification,
-                      ai_explanation, user_override, host, program, hit_count,
+                      ai_explanation, user_override, match_regex, title, host, program, hit_count,
                       first_seen_at, last_seen_at
                FROM patterns WHERE id = ?""",
             (pattern_id,),
@@ -417,10 +457,34 @@ def get_pattern_by_id(pattern_id):
             "id": row[0], "pattern_hash": row[1], "pattern_text": row[2],
             "sample_message": row[3], "classification": row[4],
             "ai_explanation": row[5], "user_override": row[6],
-            "host": row[7], "program": row[8], "hit_count": row[9],
-            "first_seen_at": row[10], "last_seen_at": row[11],
+            "match_regex": row[7], "title": row[8],
+            "host": row[9], "program": row[10], "hit_count": row[11],
+            "first_seen_at": row[12], "last_seen_at": row[13],
             "effective_classification": row[6] if row[6] else row[4],
         }
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_patterns_with_regex():
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT id, match_regex, classification, user_override
+               FROM patterns
+               WHERE match_regex IS NOT NULL AND classification != 'pending'"""
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0], "match_regex": r[1],
+                "effective_classification": r[3] if r[3] else r[2],
+            }
+            for r in rows
+        ]
     finally:
         disconnect_from_db(conn)
 
@@ -674,5 +738,86 @@ def delete_old_alerts(days):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
+def delete_old_pattern_stats(hours=100):
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM pattern_stats WHERE hour_bucket < datetime('now', ?)",
+            (f"-{hours} hours",),
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
+# --- Pattern stats operations ---
+
+def increment_pattern_stat(pattern_id, timestamp):
+    def _upsert():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            # Truncate timestamp to hour bucket
+            cursor.execute(
+                """INSERT INTO pattern_stats (pattern_id, hour_bucket, hit_count)
+                   VALUES (?, strftime('%Y-%m-%d %H:00:00', ?), 1)
+                   ON CONFLICT(pattern_id, hour_bucket)
+                   DO UPDATE SET hit_count = hit_count + 1""",
+                (pattern_id, timestamp),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_upsert)
+
+
+def get_pattern_stats(pattern_id, hours=100):
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT hour_bucket, hit_count FROM pattern_stats
+               WHERE pattern_id = ? AND hour_bucket >= datetime('now', ?)
+               ORDER BY hour_bucket ASC""",
+            (pattern_id, f"-{hours} hours"),
+        )
+        return [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_all_pattern_stats(hours=100):
+    conn = connect_to_db()
+    if not conn:
+        return {}
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT pattern_id, hour_bucket, hit_count FROM pattern_stats
+               WHERE hour_bucket >= datetime('now', ?)
+               ORDER BY pattern_id, hour_bucket ASC""",
+            (f"-{hours} hours",),
+        )
+        stats = {}
+        for r in cursor.fetchall():
+            pid = r[0]
+            if pid not in stats:
+                stats[pid] = []
+            stats[pid].append({"hour": r[1], "count": r[2]})
+        return stats
     finally:
         disconnect_from_db(conn)
