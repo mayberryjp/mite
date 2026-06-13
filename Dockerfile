@@ -20,7 +20,7 @@ RUN mkdir -p /app/data /app/config /app/rules /app/analysis /app/logs
 # Initialize database and directories on first run
 RUN python -m src.main
 
-EXPOSE 8080/tcp
+EXPOSE 4060/tcp
 EXPOSE 1514/udp
 EXPOSE 1515/tcp
 
