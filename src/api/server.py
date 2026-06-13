@@ -4,7 +4,7 @@ import os
 
 from bottle import Bottle, response
 
-from src.core.config import VERSION, MITE_DB_PATH, AI_DISCOVERY_ENABLED
+from src.core.config import VERSION, MITE_DB_PATH
 from src.core.db import get_stats
 from src.core.discord import send_discord_message
 from src.api.routes_logs import setup_logs_routes

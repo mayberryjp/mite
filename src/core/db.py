@@ -689,7 +689,6 @@ def get_stats():
         if os.path.exists(MITE_DB_PATH):
             db_size = os.path.getsize(MITE_DB_PATH)
 
-        from src.core.config import AI_DISCOVERY_ENABLED
         return {
             "logs_last_hour": logs_last_hour,
             "logs_last_24h": logs_last_24h,
@@ -700,7 +699,6 @@ def get_stats():
             "pending_patterns": pending_patterns,
             "pattern_breakdown": pattern_breakdown,
             "database_size_bytes": db_size,
-            "ai_enabled": AI_DISCOVERY_ENABLED,
         }
     finally:
         disconnect_from_db(conn)

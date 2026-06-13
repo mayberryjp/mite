@@ -21,7 +21,6 @@ services:
       - MITE_DB_PATH=/app/data/Mite.sqlite
       - MITE_LOGS_DIR=/app/logs
       - DISCORD_WEBHOOK_URL=
-      - AI_DISCOVERY_ENABLED=false
       - AI_API_BASE_URL=
       - AI_API_KEY=
       - AI_MODEL=

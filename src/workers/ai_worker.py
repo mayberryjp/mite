@@ -1,7 +1,7 @@
 import logging
 import time
 
-from src.core.config import AI_DISCOVERY_ENABLED, AI_DISCOVERY_INTERVAL_SECONDS
+from src.core.config import AI_DISCOVERY_INTERVAL_SECONDS
 from src.core.db import get_pending_patterns
 from src.core.ai_discovery import classify_patterns
 from src.utils.locallogging import log_error, log_info
@@ -13,9 +13,6 @@ AI_BATCH_SIZE = 20
 
 def run_ai_classification_cycle():
     """Retry classification for any patterns that failed inline classification."""
-    if not AI_DISCOVERY_ENABLED:
-        return
-
     pending = get_pending_patterns(limit=AI_BATCH_SIZE)
     if not pending:
         log_info(logger, "[INFO] No pending patterns to classify")
@@ -33,11 +30,8 @@ if __name__ == "__main__":
 
     while True:
         try:
-            if AI_DISCOVERY_ENABLED:
-                run_ai_classification_cycle()
-            else:
-                log_info(logger, "[INFO] AI discovery is disabled, sleeping...")
+            run_ai_classification_cycle()
         except Exception as e:
-            log_error(logger, f"[ERROR] AI worker error: {e}")
+            log_error(logger, f"[ERROR] AI worker error: {type(e).__name__}: {e}")
 
         time.sleep(AI_DISCOVERY_INTERVAL_SECONDS)

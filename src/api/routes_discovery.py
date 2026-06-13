@@ -27,11 +27,6 @@ def setup_discovery_routes(app):
     def api_trigger_classification():
         logger = logging.getLogger(__name__)
         try:
-            from src.core.config import AI_DISCOVERY_ENABLED
-            if not AI_DISCOVERY_ENABLED:
-                response.status = 400
-                return {"error": "AI discovery is not enabled"}
-
             from src.core.ai_discovery import classify_patterns
             pending = get_pending_patterns(limit=20)
             if not pending:

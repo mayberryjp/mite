@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import re
+import sys
 import time
 
 from src.core.db import (
@@ -10,6 +11,7 @@ from src.core.db import (
     upsert_host,
     increment_host_alert_count,
     update_alert_discord_sent,
+    get_pattern_by_hash,
     get_pattern_by_id,
     get_patterns_with_regex,
     insert_pattern,
@@ -17,7 +19,7 @@ from src.core.db import (
     increment_pattern_stat,
     update_pattern_classification,
 )
-from src.core.ai_discovery import classify_single_pattern
+from src.core.ai_discovery import classify_single_pattern, test_ai_connection
 from src.core.discord import send_alert_discord
 from src.core.config import DISCORD_WEBHOOK_URL
 from src.utils.locallogging import log_error, log_info
@@ -77,115 +79,138 @@ def get_effective_classification(pattern):
     return pattern.get("user_override") or pattern.get("classification") or "pending"
 
 
+def process_log(log_entry):
+    """Process a single log entry. Returns False if processing should stop (AI failure on new pattern)."""
+
+    # Track the host
+    upsert_host(
+        log_entry.get("host"),
+        log_entry.get("source_ip"),
+        log_entry["received_at"],
+    )
+
+    message = log_entry.get("message", "")
+
+    # Step 1: Try matching against AI-provided regexes from known patterns
+    regex_match_id = match_by_regex(message)
+
+    if regex_match_id:
+        # Matched an existing pattern via regex
+        pattern_id = regex_match_id
+        increment_pattern_hit(pattern_id, log_entry["received_at"])
+        pattern = get_pattern_by_id(pattern_id)
+    else:
+        # Step 2: Check if this exact message hash already exists
+        msg_hash = _hash_message(message)
+        existing = get_pattern_by_hash(msg_hash)
+
+        if existing:
+            # Known pattern by hash — increment hit count
+            pattern_id = existing["id"]
+            increment_pattern_hit(pattern_id, log_entry["received_at"])
+            pattern = existing
+        elif len(message.strip()) < MIN_MESSAGE_LENGTH:
+            # Too short to be meaningful — auto-classify as noise
+            pattern_id = insert_pattern(
+                pattern_hash=msg_hash,
+                pattern_text=message,
+                sample_message=message,
+                host=log_entry.get("host"),
+                program=log_entry.get("program"),
+                timestamp=log_entry["received_at"],
+            )
+            update_pattern_classification(pattern_id, "noise", "Message too short to be meaningful.")
+            pattern = {"id": pattern_id, "classification": "noise", "user_override": None, "ai_explanation": "Message too short to be meaningful."}
+            log_info(logger, f"[INFO] Short message auto-classified as noise: {message[:60]}")
+        else:
+            # Step 3: New pattern — insert then BLOCK and send to AI
+            pattern_id = insert_pattern(
+                pattern_hash=msg_hash,
+                pattern_text=message,
+                sample_message=message,
+                host=log_entry.get("host"),
+                program=log_entry.get("program"),
+                timestamp=log_entry["received_at"],
+            )
+            log_info(logger, f"[INFO] New log type — sending to AI for classification: {message[:80]}")
+
+            ai_pattern = classify_single_pattern({
+                "id": pattern_id,
+                "pattern_text": message,
+                "sample_message": message,
+                "host": log_entry.get("host"),
+                "program": log_entry.get("program"),
+            })
+
+            if ai_pattern:
+                pattern = ai_pattern
+                _invalidate_regex_cache()
+                log_info(logger, f"[INFO] AI classified as '{pattern.get('classification')}' title='{pattern.get('title', '')}': {message[:80]}")
+            else:
+                # AI failed — mark this log processed but STOP processing more logs
+                log_error(logger, f"[ERROR] AI classification failed — stopping processing until next cycle")
+                mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
+                increment_pattern_stat(pattern_id, log_entry["received_at"])
+                return False
+
+    # Record hourly stats for this pattern
+    increment_pattern_stat(pattern_id, log_entry["received_at"])
+
+    # Check if this pattern is classified as important
+    effective = get_effective_classification(pattern)
+
+    if effective in ALERT_SEVERITIES:
+        alert_id = insert_alert(
+            created_at=log_entry["received_at"],
+            log_id=log_entry["id"],
+            pattern_id=pattern_id,
+            severity=effective,
+            host=log_entry.get("host"),
+            source_ip=log_entry.get("source_ip"),
+            message=message,
+            reason=pattern.get("ai_explanation", ""),
+            action="",
+        )
+
+        increment_host_alert_count(
+            log_entry.get("host"), log_entry.get("source_ip")
+        )
+
+        if DISCORD_WEBHOOK_URL and alert_id:
+            success = send_alert_discord(
+                severity=effective,
+                pattern_text=pattern.get("title") or message[:80],
+                host=log_entry.get("host"),
+                source_ip=log_entry.get("source_ip"),
+                timestamp=log_entry["received_at"],
+                message=message,
+                ai_explanation=pattern.get("ai_explanation", ""),
+            )
+            if success:
+                update_alert_discord_sent(alert_id)
+
+    # Mark log as processed with pattern link
+    mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
+    return True
+
+
 def process_logs():
-    logs = get_unprocessed_logs(limit=500)
+    logs = get_unprocessed_logs(limit=100)
     if not logs:
         return
 
     log_info(logger, f"[INFO] Processing {len(logs)} unprocessed logs")
 
     for log_entry in logs:
-        # Track the host
-        upsert_host(
-            log_entry.get("host"),
-            log_entry.get("source_ip"),
-            log_entry["received_at"],
-        )
-
-        message = log_entry.get("message", "")
-
-        # Try matching against AI-provided regexes from known patterns
-        regex_match_id = match_by_regex(message)
-
-        if regex_match_id:
-            # Matched an existing pattern via regex
-            pattern_id = regex_match_id
-            increment_pattern_hit(pattern_id, log_entry["received_at"])
-            pattern = get_pattern_by_id(pattern_id)
-        else:
-            # No regex match — this is a new log type
-            # Use a hash of the raw message as a unique key
-            msg_hash = _hash_message(message)
-
-            if len(message.strip()) < MIN_MESSAGE_LENGTH:
-                # Too short to be meaningful — auto-classify as noise
-                pattern_id = insert_pattern(
-                    pattern_hash=msg_hash,
-                    pattern_text=message,
-                    sample_message=message,
-                    host=log_entry.get("host"),
-                    program=log_entry.get("program"),
-                    timestamp=log_entry["received_at"],
-                )
-                update_pattern_classification(pattern_id, "noise", "Message too short to be meaningful.")
-                pattern = {"id": pattern_id, "classification": "noise", "user_override": None, "ai_explanation": "Message too short to be meaningful."}
-                log_info(logger, f"[INFO] Short message auto-classified as noise: {message[:60]}")
-            else:
-                # Insert pattern, then BLOCK and send to AI immediately
-                pattern_id = insert_pattern(
-                    pattern_hash=msg_hash,
-                    pattern_text=message,
-                    sample_message=message,
-                    host=log_entry.get("host"),
-                    program=log_entry.get("program"),
-                    timestamp=log_entry["received_at"],
-                )
-                log_info(logger, f"[INFO] New log type — sending to AI for classification: {message[:80]}")
-
-                ai_pattern = classify_single_pattern({
-                    "id": pattern_id,
-                    "pattern_text": message,
-                    "sample_message": message,
-                    "host": log_entry.get("host"),
-                    "program": log_entry.get("program"),
-                })
-
-                if ai_pattern:
-                    pattern = ai_pattern
-                    _invalidate_regex_cache()
-                    log_info(logger, f"[INFO] AI classified as '{pattern.get('classification')}' title='{pattern.get('title', '')}': {message[:80]}")
-                else:
-                    pattern = {"id": pattern_id, "classification": "pending", "user_override": None, "ai_explanation": None}
-                    log_info(logger, f"[INFO] AI classification failed, pattern pending: {message[:80]}")
-
-        # Record hourly stats for this pattern
-        increment_pattern_stat(pattern_id, log_entry["received_at"])
-
-        # Check if this pattern is classified as important
-        effective = get_effective_classification(pattern)
-
-        if effective in ALERT_SEVERITIES:
-            alert_id = insert_alert(
-                created_at=log_entry["received_at"],
-                log_id=log_entry["id"],
-                pattern_id=pattern_id,
-                severity=effective,
-                host=log_entry.get("host"),
-                source_ip=log_entry.get("source_ip"),
-                message=message,
-                reason=pattern.get("ai_explanation", ""),
-                action="",
-            )
-
-            increment_host_alert_count(
-                log_entry.get("host"), log_entry.get("source_ip")
-            )
-
-            if DISCORD_WEBHOOK_URL and alert_id:
-                success = send_alert_discord(
-                    severity=effective,
-                    pattern_text=pattern.get("title") or message[:80],
-                    host=log_entry.get("host"),
-                    source_ip=log_entry.get("source_ip"),
-                    timestamp=log_entry["received_at"],
-                    message=message,
-                    ai_explanation=pattern.get("ai_explanation", ""),
-                )
-                if success:
-                    update_alert_discord_sent(alert_id)
-
-        # Mark log as processed with pattern link
-        mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
+        try:
+            should_continue = process_log(log_entry)
+            if not should_continue:
+                log_error(logger, "[ERROR] Stopping log processing — AI unavailable. Will retry next cycle.")
+                return
+        except Exception as e:
+            log_error(logger, f"[ERROR] Error processing log {log_entry.get('id')}: {type(e).__name__}: {e}")
+            # Don't mark as processed — retry next cycle
+            return
 
     log_info(logger, f"[INFO] Processed {len(logs)} logs")
 
@@ -197,12 +222,21 @@ if __name__ == "__main__":
     from src.core.db import init_database
     init_database()
 
+    # Test AI connectivity at startup — fail hard if not configured
+    log_info(logger, "[INFO] Testing AI API connectivity...")
+    success, error = test_ai_connection()
+    if not success:
+        log_error(logger, f"[FATAL] AI API is not available: {error}")
+        log_error(logger, "[FATAL] Processor cannot start without a working AI connection. Fix AI_API_BASE_URL, AI_API_KEY, and AI_MODEL then restart.")
+        sys.exit(1)
+    log_info(logger, "[INFO] AI API connection successful")
+
     PROCESS_INTERVAL = 10
 
     while True:
         try:
             process_logs()
         except Exception as e:
-            log_error(logger, f"[ERROR] Processor error: {e}")
+            log_error(logger, f"[ERROR] Processor error: {type(e).__name__}: {e}")
 
         time.sleep(PROCESS_INTERVAL)
