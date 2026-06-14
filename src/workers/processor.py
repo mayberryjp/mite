@@ -112,12 +112,11 @@ def process_log(log_entry):
 
     if regex_match_id:
         # Matched an existing pattern via regex
-        if regex_classification == "noise":
-            # Silently drop noise logs — delete from DB immediately
-            delete_logs([log_entry["id"]])
-            return True
         pattern_id = regex_match_id
         increment_pattern_hit(pattern_id, log_entry["received_at"])
+        if regex_classification == "noise":
+            delete_logs([log_entry["id"]])
+            return True
         pattern = get_pattern_by_id(pattern_id)
     else:
         # Step 2: Check if this exact message hash already exists
@@ -125,14 +124,12 @@ def process_log(log_entry):
         existing = get_pattern_by_hash(msg_hash)
 
         if existing:
-            # Known pattern by hash — check for noise first
+            pattern_id = existing["id"]
+            increment_pattern_hit(pattern_id, log_entry["received_at"])
             effective_existing = get_effective_classification(existing)
             if effective_existing == "noise":
                 delete_logs([log_entry["id"]])
                 return True
-            # Increment hit count for non-noise patterns
-            pattern_id = existing["id"]
-            increment_pattern_hit(pattern_id, log_entry["received_at"])
             pattern = existing
         elif not _is_meaningful_message(message):
             # Not enough real content — silently drop
