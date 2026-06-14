@@ -757,6 +757,9 @@ def get_stats():
         )
         logs_last_24h = cursor.fetchone()[0]
 
+        cursor.execute("SELECT COUNT(*) FROM logs")
+        total_logs = cursor.fetchone()[0]
+
         cursor.execute(
             "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', 'localtime', '-1 hour')"
         )
@@ -766,6 +769,9 @@ def get_stats():
             "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', 'localtime', '-24 hours')"
         )
         alerts_last_24h = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM alerts")
+        total_alerts = cursor.fetchone()[0]
 
         cursor.execute(
             "SELECT source_ip, host, log_count FROM hosts ORDER BY log_count DESC LIMIT 10"
@@ -795,8 +801,10 @@ def get_stats():
         return {
             "logs_last_hour": logs_last_hour,
             "logs_last_24h": logs_last_24h,
+            "total_logs": total_logs,
             "alerts_last_hour": alerts_last_hour,
             "alerts_last_24h": alerts_last_24h,
+            "total_alerts": total_alerts,
             "top_hosts": top_hosts,
             "total_patterns": total_patterns,
             "pending_patterns": pending_patterns,
