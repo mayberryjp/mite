@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-import time
 
 import requests
 
@@ -12,33 +11,24 @@ from src.core.config import (
 )
 from src.core.db import (
     get_pending_patterns,
+    record_ai_api_call,
+    get_ai_api_call_count_24h,
     update_pattern_classification,
 )
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
-VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
+VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low"}
 
 MAX_AI_CALLS_PER_DAY = 500
-_ai_call_count = 0
-_ai_call_window_start = 0
 
 
 def _check_rate_limit():
     """Returns True if we can make another AI call, False if rate limited."""
-    global _ai_call_count, _ai_call_window_start
-    now = time.time()
-    # Reset counter every 24 hours
-    if now - _ai_call_window_start > 86400:
-        _ai_call_count = 0
-        _ai_call_window_start = now
-    return _ai_call_count < MAX_AI_CALLS_PER_DAY
+    count = get_ai_api_call_count_24h()
+    return count < MAX_AI_CALLS_PER_DAY
 
-
-def _increment_call_count():
-    global _ai_call_count
-    _ai_call_count += 1
 
 AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls and network devices. Please help me understand the following logs and whether they are important or not and what the meaning of each log is.
 
@@ -49,8 +39,7 @@ Each log pattern below includes a sample of the original log message. I need you
    - "critical": System is down, data loss, security breach (e.g., disk failure, kernel panic, OOM killer)
    - "high": Needs attention soon (e.g., repeated auth failures, service crashes, certificate expiry)
    - "medium": Worth monitoring but not urgent (e.g., unusual service restarts, config warnings)
-   - "low": Informational, normal operations (e.g., scheduled tasks completed, routine state changes)
-   - "noise": Routine/expected traffic, not worth alerting on (e.g., firewall blocks on common scan ports, NTP sync, DHCP renewals)
+   - "low": Informational, normal operations, or routine/expected traffic (e.g., scheduled tasks completed, routine state changes, firewall blocks on common scan ports, NTP sync, DHCP renewals)
 3. Create a Python-compatible regular expression that robustly matches this type of log message. The regex should:
    - Match the static/structural parts of the log (keywords, field names, program names, log format)
    - Use \\S+ or .+? or \\d+ for dynamic values (IPs, ports, MACs, timestamps, counters, hex values)
@@ -59,7 +48,7 @@ Each log pattern below includes a sample of the original log message. I need you
 
 Respond ONLY with a JSON array. Each element must have:
 - "id": the pattern ID (integer, from the input)
-- "classification": one of "critical", "high", "medium", "low", "noise"
+- "classification": one of "critical", "high", "medium", "low"
 - "description": 2-4 sentences explaining what this log pattern means, what produces it, and why it matters or doesn't matter. Write as if explaining to a fellow engineer.
 - "match_regex": a Python regex string that matches this type of log message
 - "title": a short human-readable title describing the TYPE of log event (max 40 characters). The title must describe WHAT is happening, NOT contain any timestamps, dates, IP addresses, hostnames, or specific values from the log. Good examples: "SSH Failed Login Attempt", "Firewall Block Inbound TCP", "Kernel WiFi Disconnect", "Cron Session Open/Close", "DHCP Lease Renewal". Bad examples: "2026-06-13 Log", "192.168.1.1 Connection", "office-ap Event".
@@ -67,7 +56,7 @@ Respond ONLY with a JSON array. Each element must have:
 Example response:
 [
   {{"id": 1, "classification": "high", "title": "SSH Brute Force", "description": "This log indicates repeated failed SSH login attempts, typically produced by the sshd daemon. This usually means someone or a bot is attempting to brute-force credentials on your server. You should investigate the source IP and consider blocking it or ensuring fail2ban is active.", "match_regex": "sshd.*Failed password for \\\\S+ from \\\\S+"}},
-  {{"id": 2, "classification": "noise", "title": "FW Block TCP", "description": "This is a standard firewall deny log for an incoming connection on a commonly scanned port. These are routine internet background noise from automated scanners and do not indicate a targeted attack. Safe to ignore unless the volume is unusually high.", "match_regex": "filterlog.*match,block,in,\\\\d+,.*,tcp,"}}
+  {{"id": 2, "classification": "low", "title": "FW Block TCP", "description": "This is a standard firewall deny log for an incoming connection on a commonly scanned port. These are routine internet background noise from automated scanners and do not indicate a targeted attack. Safe to ignore unless the volume is unusually high.", "match_regex": "filterlog.*match,block,in,\\\\d+,.*,tcp,"}}
 ]
 
 Patterns to analyze:
@@ -116,7 +105,8 @@ def classify_patterns(patterns):
         return {"status": "error", "message": "AI API not configured — set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL"}
 
     if not _check_rate_limit():
-        log_error(logger, f"[ERROR] AI rate limit reached: {_ai_call_count}/{MAX_AI_CALLS_PER_DAY} calls in 24h window. Skipping classification.")
+        count = get_ai_api_call_count_24h()
+        log_error(logger, f"[ERROR] AI rate limit reached: {count}/{MAX_AI_CALLS_PER_DAY} calls in 24h window. Skipping classification.")
         return {"status": "error", "message": f"Rate limit reached ({MAX_AI_CALLS_PER_DAY} calls/day)"}
 
     if not patterns:
@@ -156,8 +146,9 @@ def classify_patterns(patterns):
             log_error(logger, f"[ERROR] AI API returned HTTP {resp.status_code}: {error_body}")
             return {"status": "error", "message": f"AI API HTTP {resp.status_code}: {error_body}"}
 
-        _increment_call_count()
-        log_info(logger, f"[INFO] AI call {_ai_call_count}/{MAX_AI_CALLS_PER_DAY} in 24h window")
+        record_ai_api_call()
+        ai_call_count = get_ai_api_call_count_24h()
+        log_info(logger, f"[INFO] AI call {ai_call_count}/{MAX_AI_CALLS_PER_DAY} in 24h window")
 
         data = resp.json()
         ai_content = data["choices"][0]["message"]["content"]

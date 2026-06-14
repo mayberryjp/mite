@@ -5,6 +5,7 @@ import time
 
 from src.core.config import MITE_DB_PATH
 from src.core.models import (
+    CONST_CREATE_AI_API_CALLS_SQL,
     CONST_CREATE_ALERTS_SQL,
     CONST_CREATE_HOSTS_SQL,
     CONST_CREATE_LOGS_SQL,
@@ -53,6 +54,7 @@ def init_database():
             CONST_CREATE_ALERTS_SQL,
             CONST_CREATE_HOSTS_SQL,
             CONST_CREATE_PATTERN_STATS_SQL,
+            CONST_CREATE_AI_API_CALLS_SQL,
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
@@ -689,6 +691,11 @@ def get_stats():
         if os.path.exists(MITE_DB_PATH):
             db_size = os.path.getsize(MITE_DB_PATH)
 
+        cursor.execute(
+            "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', '-24 hours')"
+        )
+        ai_api_calls_24h = cursor.fetchone()[0]
+
         return {
             "logs_last_hour": logs_last_hour,
             "logs_last_24h": logs_last_24h,
@@ -699,12 +706,66 @@ def get_stats():
             "pending_patterns": pending_patterns,
             "pattern_breakdown": pattern_breakdown,
             "database_size_bytes": db_size,
+            "ai_api_calls_24h": ai_api_calls_24h,
         }
     finally:
         disconnect_from_db(conn)
 
 
+# --- AI API call tracking ---
+
+def record_ai_api_call():
+    """Record an AI API call timestamp."""
+    def _record():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO ai_api_calls (called_at) VALUES (datetime('now'))")
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+    execute_with_retry(_record)
+
+
+def get_ai_api_call_count_24h():
+    """Return the number of AI API calls in the last 24 hours."""
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', '-24 hours')"
+        )
+        return cursor.fetchone()[0]
+    finally:
+        disconnect_from_db(conn)
+
+
 # --- Retention operations ---
+
+def delete_logs(log_ids):
+    """Delete specific logs by ID."""
+    if not log_ids:
+        return
+    def _delete():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" for _ in log_ids)
+            cursor.execute(
+                f"DELETE FROM logs WHERE id IN ({placeholders})",
+                list(log_ids),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+    execute_with_retry(_delete)
+
 
 def delete_old_logs(days):
     conn = connect_to_db()
@@ -757,6 +818,24 @@ def delete_old_pattern_stats(hours=100):
         disconnect_from_db(conn)
 
 
+def delete_old_ai_api_calls(days=2):
+    """Delete AI API call records older than the given number of days."""
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM ai_api_calls WHERE called_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
 # --- Pattern stats operations ---
 
 def increment_pattern_stat(pattern_id, timestamp):
@@ -781,6 +860,23 @@ def increment_pattern_stat(pattern_id, timestamp):
     execute_with_retry(_upsert)
 
 
+def _fill_hour_gaps(stats_list, hours):
+    """Fill in missing hour buckets with count=0."""
+    if not hours:
+        return stats_list
+    from datetime import datetime, timedelta
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(hours=hours - 1)
+    existing = {s["hour"]: s["count"] for s in stats_list}
+    filled = []
+    current = start
+    while current <= now:
+        bucket = current.strftime("%Y-%m-%d %H:00:00")
+        filled.append({"hour": bucket, "count": existing.get(bucket, 0)})
+        current += timedelta(hours=1)
+    return filled
+
+
 def get_pattern_stats(pattern_id, hours=100):
     conn = connect_to_db()
     if not conn:
@@ -793,7 +889,8 @@ def get_pattern_stats(pattern_id, hours=100):
                ORDER BY hour_bucket ASC""",
             (pattern_id, f"-{hours} hours"),
         )
-        return [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        return _fill_hour_gaps(raw, hours)
     finally:
         disconnect_from_db(conn)
 
@@ -810,12 +907,12 @@ def get_all_pattern_stats(hours=100):
                ORDER BY pattern_id, hour_bucket ASC""",
             (f"-{hours} hours",),
         )
-        stats = {}
+        raw_stats = {}
         for r in cursor.fetchall():
             pid = r[0]
-            if pid not in stats:
-                stats[pid] = []
-            stats[pid].append({"hour": r[1], "count": r[2]})
-        return stats
+            if pid not in raw_stats:
+                raw_stats[pid] = []
+            raw_stats[pid].append({"hour": r[1], "count": r[2]})
+        return {pid: _fill_hour_gaps(stats, hours) for pid, stats in raw_stats.items()}
     finally:
         disconnect_from_db(conn)

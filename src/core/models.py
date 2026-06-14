@@ -79,6 +79,14 @@ CONST_CREATE_PATTERNS_SQL = """
     CREATE INDEX IF NOT EXISTS idx_patterns_classification ON patterns(classification);
 """
 
+CONST_CREATE_AI_API_CALLS_SQL = """
+    CREATE TABLE IF NOT EXISTS ai_api_calls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        called_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_api_calls_called_at ON ai_api_calls(called_at);
+"""
+
 CONST_CREATE_PATTERN_STATS_SQL = """
     CREATE TABLE IF NOT EXISTS pattern_stats (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

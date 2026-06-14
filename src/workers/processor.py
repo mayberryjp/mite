@@ -8,6 +8,7 @@ from src.core.db import (
     get_unprocessed_logs,
     insert_alert,
     mark_logs_processed,
+    delete_logs,
     upsert_host,
     increment_host_alert_count,
     update_alert_discord_sent,
@@ -75,14 +76,15 @@ def _invalidate_regex_cache():
 
 
 def match_by_regex(message):
+    """Returns (pattern_id, effective_classification) or (None, None)."""
     _refresh_regex_cache()
     for entry in _regex_cache:
         try:
             if entry["regex"].search(message):
-                return entry["id"]
+                return entry["id"], entry["effective_classification"]
         except Exception:
             continue
-    return None
+    return None, None
 
 
 def _hash_message(message):
@@ -106,10 +108,14 @@ def process_log(log_entry):
     message = log_entry.get("message", "")
 
     # Step 1: Try matching against AI-provided regexes from known patterns
-    regex_match_id = match_by_regex(message)
+    regex_match_id, regex_classification = match_by_regex(message)
 
     if regex_match_id:
         # Matched an existing pattern via regex
+        if regex_classification == "noise":
+            # Silently drop noise logs — delete from DB immediately
+            delete_logs([log_entry["id"]])
+            return True
         pattern_id = regex_match_id
         increment_pattern_hit(pattern_id, log_entry["received_at"])
         pattern = get_pattern_by_id(pattern_id)
@@ -119,23 +125,19 @@ def process_log(log_entry):
         existing = get_pattern_by_hash(msg_hash)
 
         if existing:
-            # Known pattern by hash — increment hit count
+            # Known pattern by hash — check for noise first
+            effective_existing = get_effective_classification(existing)
+            if effective_existing == "noise":
+                delete_logs([log_entry["id"]])
+                return True
+            # Increment hit count for non-noise patterns
             pattern_id = existing["id"]
             increment_pattern_hit(pattern_id, log_entry["received_at"])
             pattern = existing
         elif not _is_meaningful_message(message):
-            # Not enough real content — auto-classify as noise
-            pattern_id = insert_pattern(
-                pattern_hash=msg_hash,
-                pattern_text=message,
-                sample_message=message,
-                host=log_entry.get("host"),
-                program=log_entry.get("program"),
-                timestamp=log_entry["received_at"],
-            )
-            update_pattern_classification(pattern_id, "noise", "Message has insufficient content to classify.")
-            pattern = {"id": pattern_id, "classification": "noise", "user_override": None, "ai_explanation": "Message has insufficient content to classify."}
-            log_info(logger, f"[INFO] Low-content message auto-classified as noise: {message[:60]}")
+            # Not enough real content — silently drop
+            delete_logs([log_entry["id"]])
+            return True
         else:
             # Step 3: New pattern — insert then BLOCK and send to AI
             pattern_id = insert_pattern(
@@ -170,8 +172,12 @@ def process_log(log_entry):
     # Record hourly stats for this pattern
     increment_pattern_stat(pattern_id, log_entry["received_at"])
 
-    # Check if this pattern is classified as important
+    # Check effective classification — silently drop noise logs
     effective = get_effective_classification(pattern)
+
+    if effective == "noise":
+        delete_logs([log_entry["id"]])
+        return True
 
     if effective in ALERT_SEVERITIES:
         alert_id = insert_alert(
