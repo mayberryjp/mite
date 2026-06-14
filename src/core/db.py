@@ -232,6 +232,33 @@ def get_recent_logs(after_id=0, limit=50):
         disconnect_from_db(conn)
 
 
+def get_logs_by_pattern(pattern_id, limit=100, offset=0):
+    conn = connect_to_db()
+    if not conn:
+        return [], 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM logs WHERE pattern_id = ?", (pattern_id,))
+        total = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs WHERE pattern_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (pattern_id, limit, offset),
+        )
+        rows = cursor.fetchall()
+        items = [
+            {
+                "id": r[0], "received_at": r[1], "source_ip": r[2], "host": r[3],
+                "facility": r[4], "severity": r[5], "program": r[6], "pid": r[7],
+                "message": r[8], "pattern_id": r[9],
+            }
+            for r in rows
+        ]
+        return items, total
+    finally:
+        disconnect_from_db(conn)
+
+
 # --- Pattern operations ---
 
 def get_pattern_by_hash(pattern_hash):

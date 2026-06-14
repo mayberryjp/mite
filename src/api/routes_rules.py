@@ -4,7 +4,7 @@ import re
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, get_pattern_stats, get_all_pattern_stats
+from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise", None}
@@ -125,5 +125,19 @@ def setup_patterns_routes(app):
             return json.dumps({"pattern_id": pattern_id, "hours": hours, "stats": stats})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get stats for pattern {pattern_id}: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns/<pattern_id:int>/logs", method=["GET"])
+    def api_get_pattern_logs(pattern_id):
+        logger = logging.getLogger(__name__)
+        try:
+            limit = int(request.params.get("limit", 100))
+            offset = int(request.params.get("offset", 0))
+            items, total = get_logs_by_pattern(pattern_id, limit=limit, offset=offset)
+            response.content_type = "application/json"
+            return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to get logs for pattern {pattern_id}: {e}")
             response.status = 500
             return {"error": str(e)}
