@@ -3,7 +3,7 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_alerts
+from src.core.db import get_alerts, get_hourly_alert_counts
 from src.utils.locallogging import log_error, log_info
 
 
@@ -32,5 +32,18 @@ def setup_alerts_routes(app):
             return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get alerts: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/alerts/hourly", method=["GET"])
+    def api_get_hourly_alert_counts():
+        logger = logging.getLogger(__name__)
+        try:
+            hours = int(request.params.get("hours", 24))
+            stats = get_hourly_alert_counts(hours=hours)
+            response.content_type = "application/json"
+            return json.dumps({"hours": hours, "stats": stats})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to get hourly alert counts: {e}")
             response.status = 500
             return {"error": str(e)}

@@ -916,3 +916,39 @@ def get_all_pattern_stats(hours=100):
         return {pid: _fill_hour_gaps(stats, hours) for pid, stats in raw_stats.items()}
     finally:
         disconnect_from_db(conn)
+
+
+def get_hourly_log_counts(hours=24):
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT strftime('%Y-%m-%d %H:00:00', received_at) AS hour_bucket, COUNT(*) AS cnt
+               FROM logs WHERE received_at >= datetime('now', ?)
+               GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
+            (f"-{hours} hours",),
+        )
+        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        return _fill_hour_gaps(raw, hours)
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_hourly_alert_counts(hours=24):
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT strftime('%Y-%m-%d %H:00:00', created_at) AS hour_bucket, COUNT(*) AS cnt
+               FROM alerts WHERE created_at >= datetime('now', ?)
+               GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
+            (f"-{hours} hours",),
+        )
+        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        return _fill_hour_gaps(raw, hours)
+    finally:
+        disconnect_from_db(conn)

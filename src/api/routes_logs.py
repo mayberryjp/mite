@@ -3,7 +3,7 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_logs, get_recent_logs
+from src.core.db import get_logs, get_recent_logs, get_hourly_log_counts
 from src.utils.locallogging import log_error, log_info
 
 
@@ -50,5 +50,18 @@ def setup_logs_routes(app):
             return json.dumps(items)
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get recent logs: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/logs/hourly", method=["GET"])
+    def api_get_hourly_log_counts():
+        logger = logging.getLogger(__name__)
+        try:
+            hours = int(request.params.get("hours", 24))
+            stats = get_hourly_log_counts(hours=hours)
+            response.content_type = "application/json"
+            return json.dumps({"hours": hours, "stats": stats})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to get hourly log counts: {e}")
             response.status = 500
             return {"error": str(e)}
