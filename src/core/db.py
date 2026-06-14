@@ -911,6 +911,11 @@ def get_all_pattern_stats(hours=100):
         return {}
     try:
         cursor = conn.cursor()
+
+        # Get all pattern IDs
+        cursor.execute("SELECT id FROM patterns")
+        all_pattern_ids = [r[0] for r in cursor.fetchall()]
+
         cursor.execute(
             """SELECT pattern_id, hour_bucket, hit_count FROM pattern_stats
                WHERE hour_bucket >= datetime('now', 'localtime', ?)
@@ -923,7 +928,12 @@ def get_all_pattern_stats(hours=100):
             if pid not in raw_stats:
                 raw_stats[pid] = []
             raw_stats[pid].append({"hour": r[1], "count": r[2]})
-        return {pid: _fill_hour_gaps(stats, hours) for pid, stats in raw_stats.items()}
+
+        # Include all patterns, even those with no recent stats
+        result = {}
+        for pid in all_pattern_ids:
+            result[pid] = _fill_hour_gaps(raw_stats.get(pid, []), hours)
+        return result
     finally:
         disconnect_from_db(conn)
 
