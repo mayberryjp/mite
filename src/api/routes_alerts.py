@@ -3,7 +3,7 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_alerts, get_hourly_alert_counts, delete_all_alerts
+from src.core.db import get_alerts, get_hourly_alert_counts, delete_all_alerts, delete_alert
 from src.utils.locallogging import log_error, log_info
 
 
@@ -45,6 +45,22 @@ def setup_alerts_routes(app):
             return json.dumps({"status": "ok", "deleted": deleted})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to delete alerts: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/alerts/<alert_id:int>", method=["DELETE"])
+    def api_delete_alert(alert_id):
+        logger = logging.getLogger(__name__)
+        try:
+            deleted = delete_alert(alert_id)
+            if not deleted:
+                response.status = 404
+                return {"error": "Alert not found"}
+            log_info(logger, f"[INFO] Deleted alert {alert_id}")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "alert_id": alert_id})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to delete alert {alert_id}: {e}")
             response.status = 500
             return {"error": str(e)}
 

@@ -894,6 +894,37 @@ def delete_all_alerts():
         disconnect_from_db(conn)
 
 
+def delete_alert(alert_id):
+    conn = connect_to_db()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
+def delete_pattern(pattern_id):
+    conn = connect_to_db()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pattern_stats WHERE pattern_id = ?", (pattern_id,))
+        cursor.execute("DELETE FROM alerts WHERE pattern_id = ?", (pattern_id,))
+        cursor.execute("DELETE FROM logs WHERE pattern_id = ?", (pattern_id,))
+        cursor.execute("DELETE FROM patterns WHERE id = ?", (pattern_id,))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
 def delete_old_alerts(days):
     conn = connect_to_db()
     if not conn:
