@@ -880,6 +880,20 @@ def delete_old_logs(days):
         disconnect_from_db(conn)
 
 
+def delete_all_alerts():
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM alerts")
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
 def delete_old_alerts(days):
     conn = connect_to_db()
     if not conn:
