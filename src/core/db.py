@@ -102,6 +102,65 @@ def insert_log(received_at, source_ip, host, facility, severity, program, pid, m
     return execute_with_retry(_insert)
 
 
+def insert_logs_batch(logs, conn=None):
+    """Insert multiple logs in a single transaction. Each log is a tuple of
+    (received_at, source_ip, host, facility, severity, program, pid, message, raw_message).
+    If conn is provided, uses it directly without closing it."""
+    if not logs:
+        return
+
+    own_conn = conn is None
+    if own_conn:
+        conn = connect_to_db()
+        if not conn:
+            return
+
+    def _batch_insert():
+        cursor = conn.cursor()
+        cursor.executemany(
+            """INSERT INTO logs (received_at, source_ip, host, facility, severity, program, pid, message, raw_message)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            logs,
+        )
+        conn.commit()
+
+    try:
+        execute_with_retry(_batch_insert)
+    finally:
+        if own_conn:
+            disconnect_from_db(conn)
+
+
+def upsert_hosts_batch(hosts, conn=None):
+    """Upsert multiple hosts in a single transaction. Each host is a tuple of
+    (host, source_ip, timestamp)."""
+    if not hosts:
+        return
+
+    own_conn = conn is None
+    if own_conn:
+        conn = connect_to_db()
+        if not conn:
+            return
+
+    def _batch_upsert():
+        cursor = conn.cursor()
+        cursor.executemany(
+            """INSERT INTO hosts (host, source_ip, first_seen_at, last_seen_at, log_count)
+               VALUES (?, ?, ?, ?, 1)
+               ON CONFLICT(source_ip, host)
+               DO UPDATE SET last_seen_at = ?, log_count = log_count + 1""",
+            [(h, s, t, t, t) for h, s, t in hosts],
+        )
+        conn.commit()
+
+    try:
+        execute_with_retry(_batch_upsert)
+    finally:
+        if own_conn:
+            disconnect_from_db(conn)
+
+
 def get_unprocessed_logs(limit=500):
     conn = connect_to_db()
     if not conn:

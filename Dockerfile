@@ -3,6 +3,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     git \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /Mite
