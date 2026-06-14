@@ -237,10 +237,10 @@ def get_logs(limit=100, offset=0, host=None, source_ip=None, program=None,
             conditions.append("message LIKE ?")
             params.append(f"%{search}%")
         if start:
-            conditions.append("received_at >= ?")
+            conditions.append("datetime(received_at) >= ?")
             params.append(start)
         if end:
-            conditions.append("received_at <= ?")
+            conditions.append("datetime(received_at) <= ?")
             params.append(end)
 
         where = ""
@@ -748,12 +748,12 @@ def get_stats():
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT COUNT(*) FROM logs WHERE received_at >= datetime('now', 'localtime', '-1 hour')"
+            "SELECT COUNT(*) FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', '-1 hour')"
         )
         logs_last_hour = cursor.fetchone()[0]
 
         cursor.execute(
-            "SELECT COUNT(*) FROM logs WHERE received_at >= datetime('now', 'localtime', '-24 hours')"
+            "SELECT COUNT(*) FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', '-24 hours')"
         )
         logs_last_24h = cursor.fetchone()[0]
 
@@ -870,7 +870,7 @@ def delete_old_logs(days):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM logs WHERE received_at < datetime('now', 'localtime', ?)",
+            "DELETE FROM logs WHERE datetime(received_at) < datetime('now', 'localtime', ?)",
             (f"-{days} days",),
         )
         deleted = cursor.rowcount
@@ -1031,8 +1031,8 @@ def get_hourly_log_counts(hours=24):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            """SELECT strftime('%Y-%m-%d %H:00:00', received_at) AS hour_bucket, COUNT(*) AS cnt
-               FROM logs WHERE received_at >= datetime('now', 'localtime', ?)
+            """SELECT strftime('%Y-%m-%d %H:00:00', datetime(received_at)) AS hour_bucket, COUNT(*) AS cnt
+               FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', ?)
                GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
             (f"-{hours} hours",),
         )
