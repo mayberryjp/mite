@@ -393,7 +393,7 @@ def update_pattern_title(pattern_id, title):
     execute_with_retry(_update)
 
 
-def get_all_patterns(limit=100, offset=0, classification=None):
+def get_all_patterns(limit=None, offset=0, classification=None):
     conn = connect_to_db()
     if not conn:
         return [], 0
@@ -413,14 +413,24 @@ def get_all_patterns(limit=100, offset=0, classification=None):
         cursor.execute(f"SELECT COUNT(*) FROM patterns {where}", params)
         total = cursor.fetchone()[0]
 
-        cursor.execute(
-            f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
-                       ai_explanation, user_override, match_regex, title, host, program, hit_count,
-                       first_seen_at, last_seen_at
-                FROM patterns {where}
-                ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
-            params + [limit, offset],
-        )
+        if limit is not None:
+            cursor.execute(
+                f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
+                           ai_explanation, user_override, match_regex, title, host, program, hit_count,
+                           first_seen_at, last_seen_at
+                    FROM patterns {where}
+                    ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
+                params + [limit, offset],
+            )
+        else:
+            cursor.execute(
+                f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
+                           ai_explanation, user_override, match_regex, title, host, program, hit_count,
+                           first_seen_at, last_seen_at
+                    FROM patterns {where}
+                    ORDER BY last_seen_at DESC""",
+                params,
+            )
         rows = cursor.fetchall()
         items = [
             {
@@ -652,22 +662,22 @@ def get_stats():
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT COUNT(*) FROM logs WHERE received_at >= datetime('now', '-1 hour')"
+            "SELECT COUNT(*) FROM logs WHERE received_at >= datetime('now', 'localtime', '-1 hour')"
         )
         logs_last_hour = cursor.fetchone()[0]
 
         cursor.execute(
-            "SELECT COUNT(*) FROM logs WHERE received_at >= datetime('now', '-24 hours')"
+            "SELECT COUNT(*) FROM logs WHERE received_at >= datetime('now', 'localtime', '-24 hours')"
         )
         logs_last_24h = cursor.fetchone()[0]
 
         cursor.execute(
-            "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', '-1 hour')"
+            "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', 'localtime', '-1 hour')"
         )
         alerts_last_hour = cursor.fetchone()[0]
 
         cursor.execute(
-            "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', '-24 hours')"
+            "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', 'localtime', '-24 hours')"
         )
         alerts_last_24h = cursor.fetchone()[0]
 
@@ -692,7 +702,7 @@ def get_stats():
             db_size = os.path.getsize(MITE_DB_PATH)
 
         cursor.execute(
-            "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', '-24 hours')"
+            "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', 'localtime', '-24 hours')"
         )
         ai_api_calls_24h = cursor.fetchone()[0]
 
@@ -722,7 +732,7 @@ def record_ai_api_call():
             return
         try:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO ai_api_calls (called_at) VALUES (datetime('now'))")
+            cursor.execute("INSERT INTO ai_api_calls (called_at) VALUES (datetime('now', 'localtime'))")
             conn.commit()
         finally:
             disconnect_from_db(conn)
@@ -737,7 +747,7 @@ def get_ai_api_call_count_24h():
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', '-24 hours')"
+            "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', 'localtime', '-24 hours')"
         )
         return cursor.fetchone()[0]
     finally:
@@ -774,7 +784,7 @@ def delete_old_logs(days):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM logs WHERE received_at < datetime('now', ?)",
+            "DELETE FROM logs WHERE received_at < datetime('now', 'localtime', ?)",
             (f"-{days} days",),
         )
         deleted = cursor.rowcount
@@ -791,7 +801,7 @@ def delete_old_alerts(days):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM alerts WHERE created_at < datetime('now', ?)",
+            "DELETE FROM alerts WHERE created_at < datetime('now', 'localtime', ?)",
             (f"-{days} days",),
         )
         deleted = cursor.rowcount
@@ -808,7 +818,7 @@ def delete_old_pattern_stats(hours=100):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM pattern_stats WHERE hour_bucket < datetime('now', ?)",
+            "DELETE FROM pattern_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
             (f"-{hours} hours",),
         )
         deleted = cursor.rowcount
@@ -826,7 +836,7 @@ def delete_old_ai_api_calls(days=2):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM ai_api_calls WHERE called_at < datetime('now', ?)",
+            "DELETE FROM ai_api_calls WHERE called_at < datetime('now', 'localtime', ?)",
             (f"-{days} days",),
         )
         deleted = cursor.rowcount
@@ -865,7 +875,7 @@ def _fill_hour_gaps(stats_list, hours):
     if not hours:
         return stats_list
     from datetime import datetime, timedelta
-    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    now = datetime.now().replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(hours=hours - 1)
     existing = {s["hour"]: s["count"] for s in stats_list}
     filled = []
@@ -885,7 +895,7 @@ def get_pattern_stats(pattern_id, hours=100):
         cursor = conn.cursor()
         cursor.execute(
             """SELECT hour_bucket, hit_count FROM pattern_stats
-               WHERE pattern_id = ? AND hour_bucket >= datetime('now', ?)
+               WHERE pattern_id = ? AND hour_bucket >= datetime('now', 'localtime', ?)
                ORDER BY hour_bucket ASC""",
             (pattern_id, f"-{hours} hours"),
         )
@@ -903,7 +913,7 @@ def get_all_pattern_stats(hours=100):
         cursor = conn.cursor()
         cursor.execute(
             """SELECT pattern_id, hour_bucket, hit_count FROM pattern_stats
-               WHERE hour_bucket >= datetime('now', ?)
+               WHERE hour_bucket >= datetime('now', 'localtime', ?)
                ORDER BY pattern_id, hour_bucket ASC""",
             (f"-{hours} hours",),
         )
@@ -926,7 +936,7 @@ def get_hourly_log_counts(hours=24):
         cursor = conn.cursor()
         cursor.execute(
             """SELECT strftime('%Y-%m-%d %H:00:00', received_at) AS hour_bucket, COUNT(*) AS cnt
-               FROM logs WHERE received_at >= datetime('now', ?)
+               FROM logs WHERE received_at >= datetime('now', 'localtime', ?)
                GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
             (f"-{hours} hours",),
         )
@@ -944,7 +954,7 @@ def get_hourly_alert_counts(hours=24):
         cursor = conn.cursor()
         cursor.execute(
             """SELECT strftime('%Y-%m-%d %H:00:00', created_at) AS hour_bucket, COUNT(*) AS cnt
-               FROM alerts WHERE created_at >= datetime('now', ?)
+               FROM alerts WHERE created_at >= datetime('now', 'localtime', ?)
                GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
             (f"-{hours} hours",),
         )

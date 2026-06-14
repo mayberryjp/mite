@@ -82,7 +82,7 @@ CONST_CREATE_PATTERNS_SQL = """
 CONST_CREATE_AI_API_CALLS_SQL = """
     CREATE TABLE IF NOT EXISTS ai_api_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        called_at TEXT NOT NULL DEFAULT (datetime('now'))
+        called_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
     CREATE INDEX IF NOT EXISTS idx_ai_api_calls_called_at ON ai_api_calls(called_at);
 """

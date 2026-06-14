@@ -27,4 +27,4 @@ services:
       - AI_DISCOVERY_INTERVAL_SECONDS=3600
       - LOG_RETENTION_DAYS=14
       - ALERT_RETENTION_DAYS=30
-      - TZ=UTC
+      - TZ=Asia/Tokyo

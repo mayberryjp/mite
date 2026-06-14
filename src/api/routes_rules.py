@@ -16,7 +16,8 @@ def setup_patterns_routes(app):
     def api_get_patterns():
         logger = logging.getLogger(__name__)
         try:
-            limit = int(request.params.get("limit", 100))
+            limit_param = request.params.get("limit")
+            limit = int(limit_param) if limit_param is not None else None
             offset = int(request.params.get("offset", 0))
             classification = request.params.get("classification")
 
