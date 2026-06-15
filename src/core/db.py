@@ -227,7 +227,7 @@ def get_logs(limit=100, offset=0, host=None, source_ip=None, program=None,
         return [], 0
     try:
         cursor = conn.cursor()
-        conditions = []
+        conditions = ["processed = 1"]
         params = []
 
         if host:
@@ -284,7 +284,7 @@ def get_recent_logs(after_id=0, limit=50):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs WHERE id > ? ORDER BY id DESC LIMIT ?",
+            "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs WHERE processed = 1 AND id > ? ORDER BY id DESC LIMIT ?",
             (after_id, limit),
         )
         rows = cursor.fetchall()
