@@ -116,6 +116,7 @@ def process_log(log_entry):
         pattern_id = regex_match_id
         increment_pattern_hit(pattern_id, log_entry["received_at"])
         if regex_classification == "noise":
+            increment_pattern_stat(pattern_id, log_entry["received_at"])
             increment_noise_stat(log_entry["received_at"])
             delete_logs([log_entry["id"]])
             return True
@@ -130,6 +131,7 @@ def process_log(log_entry):
             increment_pattern_hit(pattern_id, log_entry["received_at"])
             effective_existing = get_effective_classification(existing)
             if effective_existing == "noise":
+                increment_pattern_stat(pattern_id, log_entry["received_at"])
                 increment_noise_stat(log_entry["received_at"])
                 delete_logs([log_entry["id"]])
                 return True
