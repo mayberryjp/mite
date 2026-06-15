@@ -14,12 +14,14 @@ from src.core.db import (
     record_ai_api_call,
     get_ai_api_call_count_24h,
     update_pattern_classification,
+    get_setting,
 )
+from src.core.models import DEFAULT_AI_PROMPT_TEMPLATE
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
-VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low"}
+VALID_CLASSIFICATIONS = {"high", "medium", "low"}
 
 MAX_AI_CALLS_PER_DAY = 500
 
@@ -28,40 +30,6 @@ def _check_rate_limit():
     """Returns True if we can make another AI call, False if rate limited."""
     count = get_ai_api_call_count_24h()
     return count < MAX_AI_CALLS_PER_DAY
-
-
-AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls and network devices. Please help me understand the following logs and whether they are important or not and what the meaning of each log is.
-
-Each log pattern below includes a sample of the original log message. I need you to:
-
-1. Explain what this log pattern means in plain language — what system/service produces it, what event it represents, and whether it indicates a problem.
-2. Classify its importance for alerting:
-   - "critical": System is down, data loss, security breach (e.g., disk failure, kernel panic, OOM killer)
-   - "high": Needs attention soon (e.g., repeated auth failures, service crashes, certificate expiry)
-   - "medium": Worth monitoring but not urgent (e.g., unusual service restarts, config warnings)
-   - "low": Informational, normal operations, or routine/expected traffic (e.g., scheduled tasks completed, routine state changes, firewall blocks on common scan ports, NTP sync, DHCP renewals)
-3. Create a Python-compatible regular expression that robustly matches this type of log message. The regex should:
-   - Match the static/structural parts of the log (keywords, field names, program names, log format)
-   - Use \\S+ or .+? or \\d+ for dynamic values (IPs, ports, MACs, timestamps, counters, hex values)
-   - Be specific enough to only match this type of log, not overly broad
-   - Work with re.search() (does not need to match the full line)
-
-Respond ONLY with a JSON array. Each element must have:
-- "id": the pattern ID (integer, from the input)
-- "classification": one of "critical", "high", "medium", "low"
-- "description": 2-4 sentences explaining what this log pattern means, what produces it, and why it matters or doesn't matter. Write as if explaining to a fellow engineer.
-- "match_regex": a Python regex string that matches this type of log message
-- "title": a short human-readable title describing the TYPE of log event (max 40 characters). The title must describe WHAT is happening, NOT contain any timestamps, dates, IP addresses, hostnames, or specific values from the log. Good examples: "SSH Failed Login Attempt", "Firewall Block Inbound TCP", "Kernel WiFi Disconnect", "Cron Session Open/Close", "DHCP Lease Renewal". Bad examples: "2026-06-13 Log", "192.168.1.1 Connection", "office-ap Event".
-
-Example response:
-[
-  {{"id": 1, "classification": "high", "title": "SSH Brute Force", "description": "This log indicates repeated failed SSH login attempts, typically produced by the sshd daemon. This usually means someone or a bot is attempting to brute-force credentials on your server. You should investigate the source IP and consider blocking it or ensuring fail2ban is active.", "match_regex": "sshd.*Failed password for \\\\S+ from \\\\S+"}},
-  {{"id": 2, "classification": "low", "title": "FW Block TCP", "description": "This is a standard firewall deny log for an incoming connection on a commonly scanned port. These are routine internet background noise from automated scanners and do not indicate a targeted attack. Safe to ignore unless the volume is unusually high.", "match_regex": "filterlog.*match,block,in,\\\\d+,.*,tcp,"}}
-]
-
-Patterns to analyze:
-
-{patterns}"""
 
 
 def test_ai_connection():
@@ -120,7 +88,8 @@ def classify_patterns(patterns):
         )
     patterns_text = "\n---\n".join(pattern_lines)
 
-    prompt = AI_PROMPT_TEMPLATE.format(patterns=patterns_text)
+    prompt_template = get_setting("ai_prompt_template") or DEFAULT_AI_PROMPT_TEMPLATE
+    prompt = prompt_template.format(patterns=patterns_text)
 
     try:
         headers = {
@@ -153,7 +122,7 @@ def classify_patterns(patterns):
         data = resp.json()
         ai_content = data["choices"][0]["message"]["content"]
 
-        # Extract JSON from response (handle markdown code blocks)
+        # Extract JSON array from response (handle markdown code blocks)
         json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
         if not json_match:
             log_error(logger, f"[ERROR] Could not parse AI response as JSON: {ai_content[:200]}")
@@ -168,6 +137,10 @@ def classify_patterns(patterns):
             description = result.get("description", "")
             match_regex = result.get("match_regex", "")
             title = result.get("title", "")[:40] if result.get("title") else None
+
+            if classification == "critical":
+                log_info(logger, f"[INFO] AI returned 'critical' for pattern {pattern_id}; downgrading to 'high'")
+                classification = "high"
 
             if classification not in VALID_CLASSIFICATIONS:
                 log_error(logger, f"[ERROR] Invalid classification '{classification}' for pattern {pattern_id}")
@@ -199,6 +172,96 @@ def classify_patterns(patterns):
     except Exception as e:
         log_error(logger, f"[ERROR] AI pattern classification failed: {type(e).__name__}: {e}")
         return {"status": "error", "message": str(e)}
+        if not _check_rate_limit():
+            count = get_ai_api_call_count_24h()
+            log_error(logger, f"[ERROR] AI rate limit reached: {count}/{MAX_AI_CALLS_PER_DAY} calls in 24h window. Stopping classification.")
+            return {"status": "error", "message": f"Rate limit reached ({MAX_AI_CALLS_PER_DAY} calls/day)"}
+
+        log_entry_text = (
+            f"Pattern: {pattern['pattern_text']}\n"
+            f"Sample: {pattern['sample_message']}\n"
+            f"Host: {pattern.get('host', 'unknown')}\n"
+            f"Program: {pattern.get('program', 'unknown')}"
+        )
+        prompt = prompt_template.replace("{LOG_ENTRY}", log_entry_text)
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {AI_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": AI_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+
+            resp = requests.post(
+                f"{AI_API_BASE_URL.rstrip('/')}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=120,
+            )
+
+            if resp.status_code != 200:
+                error_body = resp.text[:500]
+                log_error(logger, f"[ERROR] AI API returned HTTP {resp.status_code}: {error_body}")
+                return {"status": "error", "message": f"AI API HTTP {resp.status_code}: {error_body}"}
+
+            record_ai_api_call()
+            ai_call_count = get_ai_api_call_count_24h()
+            log_info(logger, f"[INFO] AI call {ai_call_count}/{MAX_AI_CALLS_PER_DAY} in 24h window")
+
+            data = resp.json()
+            ai_content = data["choices"][0]["message"]["content"].strip()
+
+            # Strip markdown code fences if the model wraps the JSON
+            if ai_content.startswith("```"):
+                ai_content = re.sub(r"^```[a-z]*\n?", "", ai_content)
+                ai_content = re.sub(r"\n?```$", "", ai_content).strip()
+
+            result = json.loads(ai_content)
+
+            severity = result.get("severity", "").lower()
+
+            if severity == "critical":
+                log_info(logger, f"[INFO] AI returned 'critical' for pattern {pattern['id']}; downgrading to 'high'")
+                severity = "high"
+
+            if severity not in VALID_CLASSIFICATIONS:
+                log_error(logger, f"[ERROR] Invalid severity '{severity}' for pattern {pattern['id']} — skipping")
+                continue
+
+            update_pattern_classification(
+                pattern["id"],
+                classification=severity,
+                ai_explanation=result.get("reason", ""),
+                title=result.get("summary", ""),
+                category=result.get("category", ""),
+                recommended_action=result.get("recommended_action", ""),
+                confidence=result.get("confidence", ""),
+                escalation_factors=json.dumps(result.get("escalation_factors") or []),
+                deescalation_factors=json.dumps(result.get("deescalation_factors") or []),
+                suggested_rule_action=result.get("suggested_rule_action", ""),
+                deduplication_key=result.get("deduplication_key", ""),
+                notes=result.get("notes", ""),
+            )
+            classified += 1
+            log_info(logger, f"[INFO] Pattern {pattern['id']} classified as '{severity}' ({result.get('category', '')})")
+
+        except requests.ConnectionError as e:
+            log_error(logger, f"[ERROR] Cannot connect to AI API at {AI_API_BASE_URL}: {e}")
+            return {"status": "error", "message": f"Connection failed: {e}"}
+        except requests.Timeout:
+            log_error(logger, f"[ERROR] AI API request timed out after 120 seconds")
+            return {"status": "error", "message": "AI API request timed out"}
+        except json.JSONDecodeError as e:
+            log_error(logger, f"[ERROR] AI returned invalid JSON for pattern {pattern['id']}: {e}")
+            continue
+        except Exception as e:
+            log_error(logger, f"[ERROR] AI classification failed for pattern {pattern['id']}: {type(e).__name__}: {e}")
+            continue
+
+    return {"status": "ok", "classified": classified}
 
 
 def classify_single_pattern(pattern):

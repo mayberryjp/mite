@@ -18,6 +18,7 @@ from src.core.db import (
     insert_pattern,
     increment_pattern_hit,
     increment_pattern_stat,
+    increment_noise_stat,
     update_pattern_classification,
 )
 from src.core.ai_discovery import classify_single_pattern, test_ai_connection
@@ -115,6 +116,7 @@ def process_log(log_entry):
         pattern_id = regex_match_id
         increment_pattern_hit(pattern_id, log_entry["received_at"])
         if regex_classification == "noise":
+            increment_noise_stat(log_entry["received_at"])
             delete_logs([log_entry["id"]])
             return True
         pattern = get_pattern_by_id(pattern_id)
@@ -128,6 +130,7 @@ def process_log(log_entry):
             increment_pattern_hit(pattern_id, log_entry["received_at"])
             effective_existing = get_effective_classification(existing)
             if effective_existing == "noise":
+                increment_noise_stat(log_entry["received_at"])
                 delete_logs([log_entry["id"]])
                 return True
             pattern = existing
@@ -173,6 +176,7 @@ def process_log(log_entry):
     effective = get_effective_classification(pattern)
 
     if effective == "noise":
+        increment_noise_stat(log_entry["received_at"])
         delete_logs([log_entry["id"]])
         return True
 

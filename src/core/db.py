@@ -9,8 +9,11 @@ from src.core.models import (
     CONST_CREATE_ALERTS_SQL,
     CONST_CREATE_HOSTS_SQL,
     CONST_CREATE_LOGS_SQL,
+    CONST_CREATE_NOISE_STATS_SQL,
     CONST_CREATE_PATTERNS_SQL,
     CONST_CREATE_PATTERN_STATS_SQL,
+    CONST_CREATE_SETTINGS_SQL,
+    DEFAULT_AI_PROMPT_TEMPLATE,
 )
 from src.utils.locallogging import log_error, log_info
 
@@ -54,10 +57,16 @@ def init_database():
             CONST_CREATE_ALERTS_SQL,
             CONST_CREATE_HOSTS_SQL,
             CONST_CREATE_PATTERN_STATS_SQL,
+            CONST_CREATE_NOISE_STATS_SQL,
             CONST_CREATE_AI_API_CALLS_SQL,
+            CONST_CREATE_SETTINGS_SQL,
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
+        # Seed default prompt if not already set
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                       ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE))
+        conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:
         log_error(logger, f"[ERROR] Error initializing database: {e}")
@@ -848,6 +857,56 @@ def get_ai_api_call_count_24h():
         disconnect_from_db(conn)
 
 
+# --- Settings operations ---
+
+def get_setting(key, default=None):
+    """Return the value for a settings key, or default if not set."""
+    conn = connect_to_db()
+    if not conn:
+        return default
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else default
+    finally:
+        disconnect_from_db(conn)
+
+
+def set_setting(key, value):
+    """Insert or update a settings key/value pair."""
+    def _upsert():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO settings (key, value, updated_at)
+                   VALUES (?, ?, datetime('now', 'localtime'))
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                                  updated_at = excluded.updated_at""",
+                (key, value),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+    execute_with_retry(_upsert)
+
+
+def get_all_settings():
+    """Return all settings as a list of {key, value, updated_at} dicts."""
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value, updated_at FROM settings ORDER BY key")
+        return [{"key": r[0], "value": r[1], "updated_at": r[2]} for r in cursor.fetchall()]
+    finally:
+        disconnect_from_db(conn)
+
+
 # --- Retention operations ---
 
 def delete_logs(log_ids):
@@ -1109,5 +1168,60 @@ def get_hourly_alert_counts(hours=24):
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
+    finally:
+        disconnect_from_db(conn)
+
+
+def increment_noise_stat(timestamp):
+    def _upsert():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO noise_stats (hour_bucket, hit_count)
+                   VALUES (strftime('%Y-%m-%d %H:00:00', ?), 1)
+                   ON CONFLICT(hour_bucket)
+                   DO UPDATE SET hit_count = hit_count + 1""",
+                (timestamp,),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+    execute_with_retry(_upsert)
+
+
+def get_hourly_noise_counts(hours=24):
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT hour_bucket, hit_count FROM noise_stats
+               WHERE hour_bucket >= datetime('now', 'localtime', ?)
+               ORDER BY hour_bucket ASC""",
+            (f"-{hours} hours",),
+        )
+        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        return _fill_hour_gaps(raw, hours)
+    finally:
+        disconnect_from_db(conn)
+
+
+def delete_old_noise_stats(hours=100):
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM noise_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
+            (f"-{hours} hours",),
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
     finally:
         disconnect_from_db(conn)
