@@ -66,6 +66,9 @@ def init_database():
         # Seed default prompt if not already set
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                        ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE))
+        # Seed default minimum message length if not already set
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                   ("min_message_length", "50"))
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:

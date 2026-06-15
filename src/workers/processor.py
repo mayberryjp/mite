@@ -19,6 +19,7 @@ from src.core.db import (
     increment_pattern_hit,
     increment_pattern_stat,
     increment_noise_stat,
+    get_setting,
     update_pattern_classification,
 )
 from src.core.ai_discovery import classify_single_pattern, test_ai_connection
@@ -29,7 +30,25 @@ from src.utils.locallogging import log_error, log_info
 logger = logging.getLogger(__name__)
 
 ALERT_SEVERITIES = {"critical", "high"}
-MIN_MESSAGE_LENGTH = 50
+MIN_MESSAGE_LENGTH_DEFAULT = 50
+MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
+
+
+def _load_min_message_length_setting():
+    """Load minimum message length from settings table with a safe fallback."""
+    global MIN_MESSAGE_LENGTH
+    raw_value = get_setting("min_message_length", str(MIN_MESSAGE_LENGTH_DEFAULT))
+    try:
+        value = int(raw_value)
+        if value < 0:
+            raise ValueError("min_message_length must be non-negative")
+        MIN_MESSAGE_LENGTH = value
+    except (TypeError, ValueError):
+        MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
+        log_error(
+            logger,
+            f"[ERROR] Invalid min_message_length setting '{raw_value}', using default {MIN_MESSAGE_LENGTH_DEFAULT}",
+        )
 
 
 def _is_meaningful_message(message):
@@ -244,6 +263,8 @@ if __name__ == "__main__":
 
     from src.core.db import init_database
     init_database()
+    _load_min_message_length_setting()
+    log_info(logger, f"[INFO] min_message_length set to {MIN_MESSAGE_LENGTH}")
 
     # Test AI connectivity at startup — fail hard if not configured
     log_info(logger, "[INFO] Testing AI API connectivity...")
