@@ -4,10 +4,10 @@ import re
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern
+from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern
 from src.utils.locallogging import log_error, log_info
 
-VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise", None}
+VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
 
 
 def setup_patterns_routes(app):
@@ -59,9 +59,16 @@ def setup_patterns_routes(app):
                 return {"error": "Pattern not found"}
 
             data = request.json or {}
+
+            for field in ["classification", "match_regex", "title", "ai_explanation"]:
+                if field in data and data[field] is None:
+                    response.status = 400
+                    return {"error": f"{field} cannot be null"}
+
             user_override = data.get("classification")
             match_regex = data.get("match_regex")
             title = data.get("title")
+            ai_explanation = data.get("ai_explanation")
 
             if user_override is not None and user_override not in {"critical", "high", "medium", "low", "noise"}:
                 response.status = 400
@@ -72,6 +79,12 @@ def setup_patterns_routes(app):
                     update_pattern_title(pattern_id, None)
                 else:
                     update_pattern_title(pattern_id, title[:40])
+
+            if ai_explanation is not None:
+                if ai_explanation == "":
+                    update_pattern_ai_explanation(pattern_id, None)
+                else:
+                    update_pattern_ai_explanation(pattern_id, ai_explanation)
 
             if match_regex is not None:
                 if match_regex == "":
@@ -96,6 +109,8 @@ def setup_patterns_routes(app):
                 result["match_regex"] = match_regex or None
             if title is not None:
                 result["title"] = title[:40] if title else None
+            if ai_explanation is not None:
+                result["ai_explanation"] = ai_explanation or None
             return json.dumps(result)
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to update pattern {pattern_id}: {e}")

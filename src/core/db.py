@@ -488,6 +488,24 @@ def update_pattern_title(pattern_id, title):
     execute_with_retry(_update)
 
 
+def update_pattern_ai_explanation(pattern_id, ai_explanation):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET ai_explanation = ? WHERE id = ?",
+                (ai_explanation, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
 def get_all_patterns(limit=None, offset=0, classification=None):
     conn = connect_to_db()
     if not conn:
