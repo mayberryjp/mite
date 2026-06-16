@@ -217,7 +217,7 @@ def process_log(log_entry):
             log_entry.get("host"), log_entry.get("source_ip")
         )
 
-        if alert_id:
+        if alert_id and effective == "critical":
             success = send_alert_discord(
                 severity=effective,
                 pattern_text=pattern.get("title") or message[:80],
