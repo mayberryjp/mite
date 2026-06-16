@@ -25,6 +25,35 @@ VALID_CLASSIFICATIONS = {"high", "medium", "low"}
 
 MAX_AI_CALLS_PER_DAY = 500
 
+STRICT_JSON_REQUIREMENTS = """
+
+CRITICAL RESPONSE FORMAT REQUIREMENTS (MUST FOLLOW EXACTLY):
+- Respond with ONLY a valid JSON array. No markdown, no code fences, no comments, no prose.
+- The first character must be '[' and the last character must be ']'.
+- Use strict JSON (RFC 8259):
+    - Double quotes for all keys and string values
+    - No trailing commas
+    - No single-quoted strings
+    - Escape backslashes inside regex strings (example: \\d+, \\S+, \\.)
+- Every array element must include exactly these keys:
+    - "id" (integer)
+    - "classification" ("high" | "medium" | "low")
+    - "description" (string)
+    - "match_regex" (string)
+    - "title" (string, max 40 chars)
+
+Example valid output:
+[
+    {
+        "id": 1,
+        "classification": "high",
+        "description": "This pattern indicates repeated authentication failures from sshd and should be investigated quickly.",
+        "match_regex": "sshd.*Failed password for \\S+ from \\S+",
+        "title": "SSH Failed Login"
+    }
+]
+"""
+
 
 def _check_rate_limit():
     """Returns True if we can make another AI call, False if rate limited."""
@@ -89,7 +118,7 @@ def classify_patterns(patterns):
     patterns_text = "\n---\n".join(pattern_lines)
 
     prompt_template = get_setting("ai_prompt_template") or DEFAULT_AI_PROMPT_TEMPLATE
-    prompt = prompt_template.format(patterns=patterns_text)
+    prompt = prompt_template.format(patterns=patterns_text) + STRICT_JSON_REQUIREMENTS
 
     try:
         headers = {
