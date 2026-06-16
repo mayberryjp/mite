@@ -31,7 +31,16 @@ AI_DISCOVERY_INTERVAL_SECONDS = int(os.getenv("AI_DISCOVERY_INTERVAL_SECONDS", "
 LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "14"))
 ALERT_RETENTION_DAYS = int(os.getenv("ALERT_RETENTION_DAYS", "30"))
 
-VERSION = "0.1.0"
+# Version — read from VERSION file
+def _get_version():
+    try:
+        version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "VERSION")
+        with open(version_file, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return "unknown"
+
+VERSION = _get_version()
 
 
 def get_config_summary():
