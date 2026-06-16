@@ -3,7 +3,7 @@ import json
 
 import requests
 
-from src.core.config import DISCORD_WEBHOOK_URL
+from src.core.db import get_setting
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
@@ -11,9 +11,22 @@ logger = logging.getLogger(__name__)
 MAX_DISCORD_LENGTH = 1900
 
 
+def _discord_enabled():
+    value = get_setting("discord_notifications_enabled", "false")
+    return str(value).strip().lower() == "true"
+
+
+def _discord_webhook_url():
+    value = get_setting("discord_webhook_url", "")
+    return (value or "").strip()
+
+
 def send_discord_message(content):
-    if not DISCORD_WEBHOOK_URL:
-        log_error(logger, "[ERROR] Discord webhook URL not configured")
+    if not _discord_enabled():
+        return False
+
+    webhook_url = _discord_webhook_url()
+    if not webhook_url:
         return False
 
     try:
@@ -22,7 +35,7 @@ def send_discord_message(content):
 
         payload = {"content": content}
         resp = requests.post(
-            DISCORD_WEBHOOK_URL,
+            webhook_url,
             json=payload,
             timeout=10,
         )

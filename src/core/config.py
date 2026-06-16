@@ -21,9 +21,6 @@ MITE_DB_PATH = os.getenv("MITE_DB_PATH", "/app/data/Mite.sqlite")
 # Logs directory
 MITE_LOGS_DIR = os.getenv("MITE_LOGS_DIR", "/app/logs")
 
-# Discord
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
-
 # AI Discovery
 AI_API_BASE_URL = os.getenv("AI_API_BASE_URL", "")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
@@ -44,7 +41,7 @@ def get_config_summary():
         "syslog_udp_port": MITE_SYSLOG_UDP_PORT,
         "syslog_tcp_port": MITE_SYSLOG_TCP_PORT,
         "db_path": MITE_DB_PATH,
-        "discord_configured": bool(DISCORD_WEBHOOK_URL),
+        "discord_configured": False,
         "ai_configured": bool(AI_API_BASE_URL and AI_API_KEY and AI_MODEL),
         "log_retention_days": LOG_RETENTION_DAYS,
         "alert_retention_days": ALERT_RETENTION_DAYS,

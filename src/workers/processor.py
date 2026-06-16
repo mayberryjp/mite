@@ -24,7 +24,6 @@ from src.core.db import (
 )
 from src.core.ai_discovery import classify_single_pattern, test_ai_connection
 from src.core.discord import send_alert_discord
-from src.core.config import DISCORD_WEBHOOK_URL
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
@@ -218,7 +217,7 @@ def process_log(log_entry):
             log_entry.get("host"), log_entry.get("source_ip")
         )
 
-        if DISCORD_WEBHOOK_URL and alert_id:
+        if alert_id:
             success = send_alert_discord(
                 severity=effective,
                 pattern_text=pattern.get("title") or message[:80],

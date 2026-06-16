@@ -69,6 +69,11 @@ def init_database():
         # Seed default minimum message length if not already set
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                    ("min_message_length", "50"))
+        # Seed Discord notification settings if not already set
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                   ("discord_notifications_enabled", "false"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                   ("discord_webhook_url", ""))
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:
