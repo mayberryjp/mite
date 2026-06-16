@@ -4,7 +4,7 @@ import re
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern, delete_all_patterns
+from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern, delete_all_patterns, move_low_patterns_to_noise
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
@@ -144,6 +144,19 @@ def setup_patterns_routes(app):
             return json.dumps({"status": "ok", "deleted": deleted})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to delete all patterns: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns/actions/low-to-noise", method=["POST"])
+    def api_move_low_patterns_to_noise():
+        logger = logging.getLogger(__name__)
+        try:
+            updated = move_low_patterns_to_noise()
+            log_info(logger, f"[INFO] Reclassified {updated} low patterns to noise")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "updated": updated, "from": "low", "to": "noise"})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to reclassify low patterns to noise: {e}")
             response.status = 500
             return {"error": str(e)}
 

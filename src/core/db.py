@@ -463,6 +463,28 @@ def update_pattern_user_override(pattern_id, user_override):
     execute_with_retry(_update)
 
 
+def move_low_patterns_to_noise():
+    """Set user_override to 'noise' for patterns whose effective classification is 'low'."""
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return 0
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """UPDATE patterns
+                   SET user_override = 'noise'
+                   WHERE COALESCE(user_override, classification) = 'low'
+                     AND (user_override IS NULL OR user_override != 'noise')"""
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            disconnect_from_db(conn)
+
+    return execute_with_retry(_update)
+
+
 def update_pattern_regex(pattern_id, match_regex):
     def _update():
         conn = connect_to_db()
