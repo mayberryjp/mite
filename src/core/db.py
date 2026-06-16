@@ -74,6 +74,9 @@ def init_database():
                    ("discord_notifications_enabled", "false"))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                    ("discord_webhook_url", ""))
+        # Seed AI API daily rate limit if not already set
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+               ("ai_api_daily_rate_limit", "500"))
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:

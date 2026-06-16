@@ -31,6 +31,12 @@ EDITABLE_SETTINGS = {
 		"type": "string",
 		"allow_empty": True,
 	},
+	"ai_api_daily_rate_limit": {
+		"description": "Maximum number of AI API classification calls allowed in a rolling 24-hour window.",
+		"default": "500",
+		"type": "int",
+		"min": 1,
+	},
 }
 
 

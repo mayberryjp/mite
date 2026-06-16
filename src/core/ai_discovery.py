@@ -15,6 +15,7 @@ from src.core.db import (
     get_ai_api_call_count_24h,
     update_pattern_classification,
     get_setting,
+    set_setting,
 )
 from src.core.models import DEFAULT_AI_PROMPT_TEMPLATE
 from src.utils.locallogging import log_error, log_info
@@ -22,7 +23,7 @@ from src.utils.locallogging import log_error, log_info
 logger = logging.getLogger(__name__)
 
 VALID_CLASSIFICATIONS = {"high", "medium", "low"}
-MAX_AI_CALLS_PER_DAY = 500
+DEFAULT_AI_DAILY_RATE_LIMIT = 500
 
 STRICT_JSON_REQUIREMENTS = r"""
 
@@ -63,10 +64,27 @@ def _parse_ai_results(ai_content):
     return json.loads(json_match.group())
 
 
+def _get_ai_daily_rate_limit():
+    """Return the configured AI call limit in a rolling 24-hour window."""
+    raw_limit = get_setting("ai_api_daily_rate_limit")
+    if raw_limit is None:
+        raw_limit = str(DEFAULT_AI_DAILY_RATE_LIMIT)
+        set_setting("ai_api_daily_rate_limit", raw_limit)
+    try:
+        parsed_limit = int(raw_limit)
+    except (TypeError, ValueError):
+        return DEFAULT_AI_DAILY_RATE_LIMIT
+
+    if parsed_limit < 1:
+        return DEFAULT_AI_DAILY_RATE_LIMIT
+
+    return parsed_limit
+
+
 def _check_rate_limit():
     """Returns True if we can make another AI call, False if rate limited."""
     count = get_ai_api_call_count_24h()
-    return count < MAX_AI_CALLS_PER_DAY
+    return count < _get_ai_daily_rate_limit()
 
 
 def test_ai_connection():
@@ -111,8 +129,9 @@ def classify_patterns(patterns):
 
     if not _check_rate_limit():
         count = get_ai_api_call_count_24h()
-        log_error(logger, f"[ERROR] AI rate limit reached: {count}/{MAX_AI_CALLS_PER_DAY} calls in 24h window. Skipping classification.")
-        return {"status": "error", "message": f"Rate limit reached ({MAX_AI_CALLS_PER_DAY} calls/day)"}
+        rate_limit = _get_ai_daily_rate_limit()
+        log_error(logger, f"[ERROR] AI rate limit reached: {count}/{rate_limit} calls in 24h window. Skipping classification.")
+        return {"status": "error", "message": f"Rate limit reached ({rate_limit} calls/day)"}
 
     if not patterns:
         return {"status": "ok", "classified": 0}
@@ -154,7 +173,8 @@ def classify_patterns(patterns):
 
         record_ai_api_call()
         ai_call_count = get_ai_api_call_count_24h()
-        log_info(logger, f"[INFO] AI call {ai_call_count}/{MAX_AI_CALLS_PER_DAY} in 24h window")
+        rate_limit = _get_ai_daily_rate_limit()
+        log_info(logger, f"[INFO] AI call {ai_call_count}/{rate_limit} in 24h window")
 
         data = resp.json()
         ai_content = data["choices"][0]["message"]["content"]
