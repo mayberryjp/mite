@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 ALERT_SEVERITIES = {"critical", "high"}
 MIN_MESSAGE_LENGTH_DEFAULT = 50
 MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
+PROCESS_INTERVAL_DEFAULT = 10
+PROCESS_INTERVAL = PROCESS_INTERVAL_DEFAULT
+PROCESS_FETCH_LIMIT_DEFAULT = 100
+PROCESS_FETCH_LIMIT = PROCESS_FETCH_LIMIT_DEFAULT
+REGEX_CACHE_TTL_DEFAULT = 60
 
 
 def _load_min_message_length_setting():
@@ -66,7 +71,29 @@ def _is_meaningful_message(message):
 # Cache of compiled regexes, refreshed periodically
 _regex_cache = []
 _regex_cache_time = 0
-REGEX_CACHE_TTL = 60  # seconds
+REGEX_CACHE_TTL = REGEX_CACHE_TTL_DEFAULT
+
+
+def _load_runtime_settings():
+    """Load processor runtime tuning settings from DB with safe fallbacks."""
+    global PROCESS_INTERVAL, PROCESS_FETCH_LIMIT, REGEX_CACHE_TTL
+
+    runtime_keys = (
+        ("processor_interval_seconds", PROCESS_INTERVAL_DEFAULT, "PROCESS_INTERVAL"),
+        ("processor_fetch_limit", PROCESS_FETCH_LIMIT_DEFAULT, "PROCESS_FETCH_LIMIT"),
+        ("regex_cache_ttl_seconds", REGEX_CACHE_TTL_DEFAULT, "REGEX_CACHE_TTL"),
+    )
+
+    for key, default_value, attr_name in runtime_keys:
+        raw_value = get_setting(key, str(default_value))
+        try:
+            parsed = int(raw_value)
+            if parsed < 1:
+                raise ValueError(f"{key} must be >= 1")
+            globals()[attr_name] = parsed
+        except (TypeError, ValueError):
+            globals()[attr_name] = default_value
+            log_error(logger, f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}")
 
 
 def _refresh_regex_cache():
@@ -236,7 +263,8 @@ def process_log(log_entry):
 
 
 def process_logs():
-    logs = get_unprocessed_logs(limit=100)
+    _load_runtime_settings()
+    logs = get_unprocessed_logs(limit=PROCESS_FETCH_LIMIT)
     if not logs:
         return
 
@@ -263,6 +291,7 @@ if __name__ == "__main__":
     from src.core.db import init_database
     init_database()
     _load_min_message_length_setting()
+    _load_runtime_settings()
     log_info(logger, f"[INFO] min_message_length set to {MIN_MESSAGE_LENGTH}")
 
     # Test AI connectivity at startup — fail hard if not configured
@@ -273,8 +302,6 @@ if __name__ == "__main__":
         log_error(logger, "[FATAL] Processor cannot start without a working AI connection. Fix AI_API_BASE_URL, AI_API_KEY, and AI_MODEL then restart.")
         sys.exit(1)
     log_info(logger, "[INFO] AI API connection successful")
-
-    PROCESS_INTERVAL = 10
 
     while True:
         try:

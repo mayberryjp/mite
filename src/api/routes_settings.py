@@ -31,9 +31,87 @@ EDITABLE_SETTINGS = {
 		"type": "string",
 		"allow_empty": True,
 	},
+	"log_retention_days": {
+		"description": "How many days of logs to retain before cleanup.",
+		"default": "14",
+		"type": "int",
+		"min": 1,
+	},
+	"alert_retention_days": {
+		"description": "How many days of alerts to retain before cleanup.",
+		"default": "30",
+		"type": "int",
+		"min": 1,
+	},
 	"ai_api_daily_rate_limit": {
 		"description": "Maximum number of AI API classification calls allowed in a rolling 24-hour window.",
 		"default": "500",
+		"type": "int",
+		"min": 1,
+	},
+	"ai_discovery_interval_seconds": {
+		"description": "How often the AI worker polls pending patterns.",
+		"default": "3600",
+		"type": "int",
+		"min": 1,
+	},
+	"ai_batch_size": {
+		"description": "Number of pending patterns to classify per AI worker cycle.",
+		"default": "20",
+		"type": "int",
+		"min": 1,
+	},
+	"processor_interval_seconds": {
+		"description": "How often the processor runs each cycle.",
+		"default": "10",
+		"type": "int",
+		"min": 1,
+	},
+	"processor_fetch_limit": {
+		"description": "Maximum unprocessed logs fetched by the processor per cycle.",
+		"default": "100",
+		"type": "int",
+		"min": 1,
+	},
+	"retention_check_interval_seconds": {
+		"description": "How often the retention worker runs cleanup.",
+		"default": "3600",
+		"type": "int",
+		"min": 1,
+	},
+	"udp_batch_size": {
+		"description": "UDP listener flush batch size.",
+		"default": "500",
+		"type": "int",
+		"min": 1,
+	},
+	"udp_batch_flush_interval_seconds": {
+		"description": "UDP listener flush interval in seconds.",
+		"default": "1.0",
+		"type": "float",
+		"min": 0.1,
+	},
+	"udp_recv_buffer_bytes": {
+		"description": "Requested UDP socket receive buffer size in bytes.",
+		"default": "4194304",
+		"type": "int",
+		"min": 65536,
+	},
+	"tcp_batch_size": {
+		"description": "TCP listener flush batch size per connection.",
+		"default": "500",
+		"type": "int",
+		"min": 1,
+	},
+	"tcp_batch_flush_interval_seconds": {
+		"description": "TCP listener flush interval in seconds.",
+		"default": "1.0",
+		"type": "float",
+		"min": 0.1,
+	},
+	"regex_cache_ttl_seconds": {
+		"description": "How long processor regex cache is kept before refresh.",
+		"default": "60",
 		"type": "int",
 		"min": 1,
 	},
@@ -55,6 +133,18 @@ def _normalize_setting_value(key, value):
 			parsed = int(value)
 		except (TypeError, ValueError) as exc:
 			raise ValueError("value must be an integer") from exc
+
+		min_value = meta.get("min")
+		if min_value is not None and parsed < min_value:
+			raise ValueError(f"value must be >= {min_value}")
+
+		return str(parsed)
+
+	if meta["type"] == "float":
+		try:
+			parsed = float(value)
+		except (TypeError, ValueError) as exc:
+			raise ValueError("value must be a number") from exc
 
 		min_value = meta.get("min")
 		if min_value is not None and parsed < min_value:
@@ -86,6 +176,12 @@ def _typed_setting_value(key, raw_value):
 	if meta["type"] == "int":
 		try:
 			return int(raw_value)
+		except (TypeError, ValueError):
+			return raw_value
+
+	if meta["type"] == "float":
+		try:
+			return float(raw_value)
 		except (TypeError, ValueError):
 			return raw_value
 

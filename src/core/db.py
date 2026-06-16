@@ -74,9 +74,37 @@ def init_database():
                    ("discord_notifications_enabled", "false"))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                    ("discord_webhook_url", ""))
+        # Seed retention settings if not already set
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+               ("log_retention_days", "14"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+               ("alert_retention_days", "30"))
         # Seed AI API daily rate limit if not already set
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                ("ai_api_daily_rate_limit", "500"))
+        # Seed worker/runtime tuning settings if not already set
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_discovery_interval_seconds", "3600"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_batch_size", "20"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("processor_interval_seconds", "10"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("processor_fetch_limit", "100"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("retention_check_interval_seconds", "3600"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("udp_batch_size", "500"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("udp_batch_flush_interval_seconds", "1.0"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("udp_recv_buffer_bytes", "4194304"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("tcp_batch_size", "500"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("tcp_batch_flush_interval_seconds", "1.0"))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("regex_cache_ttl_seconds", "60"))
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:

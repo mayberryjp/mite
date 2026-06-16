@@ -5,12 +5,38 @@ import time
 
 from src.core.config import MITE_SYSLOG_TCP_HOST, MITE_SYSLOG_TCP_PORT
 from src.core.syslog_parser import parse_syslog_message
-from src.core.db import insert_logs_batch, upsert_hosts_batch, connect_to_db, disconnect_from_db
+from src.core.db import insert_logs_batch, upsert_hosts_batch, connect_to_db, disconnect_from_db, get_setting
 from src.utils.locallogging import log_error, log_info
 
 BUFFER_SIZE = 65535
-BATCH_SIZE = 500
-BATCH_FLUSH_INTERVAL = 1.0  # seconds
+TCP_BATCH_SIZE_DEFAULT = 500
+TCP_BATCH_FLUSH_INTERVAL_DEFAULT = 1.0
+BATCH_SIZE = TCP_BATCH_SIZE_DEFAULT
+BATCH_FLUSH_INTERVAL = TCP_BATCH_FLUSH_INTERVAL_DEFAULT
+
+
+def _get_int_setting(key, default_value, min_value=1):
+    raw_value = get_setting(key, str(default_value))
+    try:
+        parsed = int(raw_value)
+        if parsed < min_value:
+            raise ValueError(f"{key} must be >= {min_value}")
+        return parsed
+    except (TypeError, ValueError):
+        log_error(logging.getLogger(__name__), f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}")
+        return default_value
+
+
+def _get_float_setting(key, default_value, min_value=0.1):
+    raw_value = get_setting(key, str(default_value))
+    try:
+        parsed = float(raw_value)
+        if parsed < min_value:
+            raise ValueError(f"{key} must be >= {min_value}")
+        return parsed
+    except (TypeError, ValueError):
+        log_error(logging.getLogger(__name__), f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}")
+        return default_value
 
 
 def _flush_batch(logger, log_batch, host_batch, conn):
@@ -85,7 +111,10 @@ def handle_tcp_client(conn_sock, addr):
 
 
 def run_tcp_listener():
+    global BATCH_SIZE, BATCH_FLUSH_INTERVAL
     logger = logging.getLogger(__name__)
+    BATCH_SIZE = _get_int_setting("tcp_batch_size", TCP_BATCH_SIZE_DEFAULT)
+    BATCH_FLUSH_INTERVAL = _get_float_setting("tcp_batch_flush_interval_seconds", TCP_BATCH_FLUSH_INTERVAL_DEFAULT)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
