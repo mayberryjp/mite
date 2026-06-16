@@ -3,7 +3,7 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_logs, get_recent_logs, get_hourly_log_counts, get_hourly_noise_counts
+from src.core.db import get_logs, get_recent_logs, get_hourly_log_counts, get_hourly_noise_counts, delete_all_logs
 from src.utils.locallogging import log_error, log_info
 
 
@@ -50,6 +50,19 @@ def setup_logs_routes(app):
             return json.dumps(items)
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get recent logs: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/logs", method=["DELETE"])
+    def api_delete_all_logs():
+        logger = logging.getLogger(__name__)
+        try:
+            deleted = delete_all_logs()
+            log_info(logger, f"[INFO] Deleted all logs ({deleted} total)")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "deleted": deleted})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to delete all logs: {e}")
             response.status = 500
             return {"error": str(e)}
 

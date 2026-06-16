@@ -4,7 +4,7 @@ import re
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern
+from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern, delete_all_patterns
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
@@ -131,6 +131,19 @@ def setup_patterns_routes(app):
             return json.dumps({"status": "ok", "pattern_id": pattern_id})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to delete pattern {pattern_id}: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns", method=["DELETE"])
+    def api_delete_all_patterns():
+        logger = logging.getLogger(__name__)
+        try:
+            deleted = delete_all_patterns()
+            log_info(logger, f"[INFO] Deleted all patterns ({deleted} total)")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "deleted": deleted})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to delete all patterns: {e}")
             response.status = 500
             return {"error": str(e)}
 

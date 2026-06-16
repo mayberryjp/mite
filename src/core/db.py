@@ -968,6 +968,20 @@ def delete_old_logs(days):
         disconnect_from_db(conn)
 
 
+def delete_all_logs():
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM logs")
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
 def delete_all_alerts():
     conn = connect_to_db()
     if not conn:
@@ -1007,6 +1021,23 @@ def delete_pattern(pattern_id):
         cursor.execute("DELETE FROM logs WHERE pattern_id = ?", (pattern_id,))
         cursor.execute("DELETE FROM patterns WHERE id = ?", (pattern_id,))
         deleted = cursor.rowcount > 0
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
+def delete_all_patterns():
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pattern_stats")
+        cursor.execute("DELETE FROM alerts")
+        cursor.execute("DELETE FROM logs")
+        cursor.execute("DELETE FROM patterns")
+        deleted = cursor.rowcount
         conn.commit()
         return deleted
     finally:
