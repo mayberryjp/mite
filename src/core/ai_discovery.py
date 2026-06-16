@@ -22,10 +22,9 @@ from src.utils.locallogging import log_error, log_info
 logger = logging.getLogger(__name__)
 
 VALID_CLASSIFICATIONS = {"high", "medium", "low"}
-
 MAX_AI_CALLS_PER_DAY = 500
 
-STRICT_JSON_REQUIREMENTS = """
+STRICT_JSON_REQUIREMENTS = r"""
 
 CRITICAL RESPONSE FORMAT REQUIREMENTS (MUST FOLLOW EXACTLY):
 - Respond with ONLY a valid JSON array. No markdown, no code fences, no comments, no prose.
@@ -34,7 +33,8 @@ CRITICAL RESPONSE FORMAT REQUIREMENTS (MUST FOLLOW EXACTLY):
     - Double quotes for all keys and string values
     - No trailing commas
     - No single-quoted strings
-    - Escape backslashes inside regex strings (example: \\d+, \\S+, \\.)
+    - Regex strings MUST use JSON-escaped backslashes (example: \\d+, \\S+, \\.)
+    - NEVER use invalid JSON escapes like \d, \S, \w, \s, or \. directly
 - Every array element must include exactly these keys:
     - "id" (integer)
     - "classification" ("high" | "medium" | "low")
@@ -48,11 +48,19 @@ Example valid output:
         "id": 1,
         "classification": "high",
         "description": "This pattern indicates repeated authentication failures from sshd and should be investigated quickly.",
-        "match_regex": "sshd.*Failed password for \\S+ from \\S+",
+        "match_regex": "sshd.*Failed password for \\\\S+ from \\\\S+",
         "title": "SSH Failed Login"
     }
 ]
 """
+
+
+def _parse_ai_results(ai_content):
+    """Parse AI output into JSON results using strict JSON decoding only."""
+    json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
+    if not json_match:
+        raise json.JSONDecodeError("Could not find JSON array in AI response", ai_content, 0)
+    return json.loads(json_match.group())
 
 
 def _check_rate_limit():
@@ -151,13 +159,11 @@ def classify_patterns(patterns):
         data = resp.json()
         ai_content = data["choices"][0]["message"]["content"]
 
-        # Extract JSON array from response (handle markdown code blocks)
-        json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
-        if not json_match:
-            log_error(logger, f"[ERROR] Could not parse AI response as JSON: {ai_content[:200]}")
-            return {"status": "error", "message": "Could not parse AI response"}
-
-        results = json.loads(json_match.group())
+        try:
+            results = _parse_ai_results(ai_content)
+        except json.JSONDecodeError as e:
+            log_error(logger, f"[ERROR] AI returned invalid JSON: {e}")
+            return {"status": "error", "message": f"Invalid JSON from AI: {e}"}
 
         classified = 0
         for result in results:
@@ -195,9 +201,6 @@ def classify_patterns(patterns):
     except requests.Timeout:
         log_error(logger, f"[ERROR] AI API request timed out after 120 seconds")
         return {"status": "error", "message": "AI API request timed out"}
-    except json.JSONDecodeError as e:
-        log_error(logger, f"[ERROR] AI returned invalid JSON: {e}")
-        return {"status": "error", "message": f"Invalid JSON from AI: {e}"}
     except Exception as e:
         log_error(logger, f"[ERROR] AI pattern classification failed: {type(e).__name__}: {e}")
         return {"status": "error", "message": str(e)}
