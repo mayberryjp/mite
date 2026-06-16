@@ -28,7 +28,7 @@ from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
-ALERT_SEVERITIES = {"critical", "high"}
+ALERT_SEVERITIES = {"critical"}
 MIN_MESSAGE_LENGTH_DEFAULT = 50
 MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
 PROCESS_INTERVAL_DEFAULT = 10
