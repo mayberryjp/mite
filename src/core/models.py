@@ -220,7 +220,8 @@ STRATEGY: Write a BROAD, KEYWORD-ANCHORED regex. Do NOT try to match the full lo
 
 STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify this event type.
   Good: daemon name, action verb, event name, protocol name, stable field label.
-  Skip: anything dynamic — token placeholders (NUMBER, IP_ADDRESS, etc.), hostnames, version numbers.
+    Skip: anything dynamic — token placeholders (NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
+        HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE), hostnames, version numbers.
 
 STEP 2 — Join those keywords with .* between them.
 
@@ -231,7 +232,7 @@ Examples:
   keywords: dhcp6c, Sending Solicit
   regex: 'dhcp6c.*Sending Solicit'
 
-  sample: 'hostapd NUMBER: wifi0ap1: STA MAC_ADDRESS IEEE NUMBER: disassociated'
+    sample: 'hostapd NUMBER: wifi0ap1: STA MAC_ADDRESS IEEE VERSION: disassociated'
   keywords: hostapd, STA, disassociated
   regex: 'hostapd.*STA.*disassociated'
 
@@ -241,7 +242,9 @@ Examples:
 
 Rules:
 - NEVER reconstruct the full log line as a regex.
-- NEVER convert token placeholder names (NUMBER, IP_ADDRESS, MAC_ADDRESS, etc.) into character classes like [0-9]+.
+- NEVER use character classes like [0-9]+, [0-9a-fA-F]+, [0-9.]+ in place of token placeholder words.
+- NEVER convert these token names into patterns: NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
+  HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE. Skip them when choosing keywords.
 - Do NOT hardcode site-specific hostnames or environment labels.
 - Use .* (not .+) between keywords so empty spans are allowed.
 

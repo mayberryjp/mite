@@ -53,38 +53,44 @@ Example valid output:
 
 REGEX_GENERALIZATION_REQUIREMENTS = r"""
 
-REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
-- Prioritize portability across different environments and site names.
-- Treat hostnames/FQDNs as dynamic values unless a specific hostname is the event identity.
-- Do NOT hardcode site-specific segments (for example: "mayberry", "corp", "prod", "lab").
-- For host tokens, prefer broad hostname patterns such as:\n  - [A-Za-z0-9._-]+\n  - [A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+
-- For ANY numeric sequence that MAY contain dots (versions, protocols, IP segments), use [0-9]+(?:[.][0-9]+)* or [0-9.]+ instead of [0-9]+ alone. This includes: product versions (6.8.2), protocol versions (HTTP/1.1, TLS1.3), firmware versions, dotted-quad IP segments, etc.
-- For hex values (example: 0xABCD), use [0-9a-fA-F]+ instead of [^\s]+ or \S+ (which are too greedy and will consume commas and other delimiters).
-- For CSV fields: if a field can be empty, represent empty as ,, not ,\,,. Use [^,]* for optional values.
-- For JSON string values (e.g., inside {"key":"value"}), use [^"]+ to match the value content, NOT \S+ (which includes the closing quote and breaks the JSON structure).
-- The sample has already been preprocessed. Dynamic values have been replaced with token placeholders: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE.
-- When a token placeholder appears in the sample, copy it VERBATIM into the regex as a literal string. Do NOT replace it with a character class or regex pattern.
-- Correct example: sample contains 'uid=NUMBER' -> regex contains 'uid=NUMBER' (not 'uid=[0-9]+')
-- Correct example: sample contains 'from IP_ADDRESS port NUMBER' -> regex contains 'from IP_ADDRESS port NUMBER'
-- Wrong example: sample contains 'uid=NUMBER' -> regex contains 'uid=[0-9]+' (DO NOT DO THIS)
-- Wrong example: sample contains 'IP_ADDRESS' -> regex contains '\\d+\\.\\d+\\.\\d+\\.\\d+' (DO NOT DO THIS)
-- Build regex around stable keywords and delimiters, with token placeholders exactly as they appear for variable positions.
-- Build regex around stable keywords and delimiters first; use targeted wildcards between those keywords.
-- Do NOT try to model every token position in long logs. Prefer keyword-anchored matching with bounded character classes.
-- Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
-- Do NOT over-constrain optional suffixes like domain depth, TLD, minor version, or local naming conventions.
-- If sample lines differ only by hostname/site labels, generated regex MUST match all of them.
-- NEVER use [^\s]+ or \S+ for structured/bounded values; use specific character classes like [0-9a-fA-F]+, [A-Za-z0-9-]+, [^"]+, etc.
+REGEX STRATEGY — MUST FOLLOW EXACTLY:
 
-Critical Examples (MUST apply these patterns):
-- Bad (misses dots): U6-Pro-[0-9]+\+[0-9]+  matches "U6-Pro-6" but FAILS on "U6-Pro-6.8.2+15592"
-- Better (handles all versions): U6-Pro-[0-9]+(?:\.[0-9]+)*\+[0-9]+  matches "U6-Pro-6.8.2+15592" correctly
-- Bad (greedy in JSON): {"mac":"\S+","vap":"  will incorrectly match into the next field
-- Better (stops at quote): {"mac":"[^"]+","vap":"  only captures the actual MAC value
-- Bad (hardcoded hostname): firewall\.farm\.mayberry\.farm
-- Better (portable): firewall\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*
-- Bad (misses dotted version): IEEE [0-9]+: disassociated
-- Better (handles all): IEEE [0-9.]+: disassociated or IEEE [0-9]+(?:\.[0-9]+)*: disassociated
+Write BROAD, KEYWORD-ANCHORED regexes. Do NOT try to match the full log line token by token.
+
+STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify this event type.
+    Good keywords: daemon name, action verb, event name, protocol name, stable field label.
+    Bad keywords: anything that looks dynamic — token placeholders (NUMBER, IP_ADDRESS, MAC_ADDRESS,
+        HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, DYNAMIC_VALUE), hostnames, paths with version numbers.
+
+STEP 2 — Join those keywords with .* between them.
+    The result matches any log containing those keywords in order, regardless of what is between them.
+
+STEP 3 — Escape regex metacharacters in the keywords (brackets, dots, parens, etc.).
+
+EXAMPLES (follow this pattern exactly):
+    sample: 'NUMBER:NUMBER+NUMBER:NUMBER FIREWALL_HOST dhcp6c NUMBER - - Sending Solicit'
+    keywords: dhcp6c, Sending Solicit
+    regex: 'dhcp6c.*Sending Solicit'
+
+    sample: 'hostapd NUMBER: wifi0ap1: STA MAC_ADDRESS IEEE VERSION: disassociated'
+    keywords: hostapd, STA, disassociated
+    regex: 'hostapd.*STA.*disassociated'
+
+    sample: 'pam_unix(cron:session): session opened for user root(uid=NUMBER) by root'
+    keywords: pam_unix, cron:session, session opened
+    regex: 'pam_unix.*cron:session.*session opened'
+
+    sample: 'sshd NUMBER: Failed password for NUMBER from IP_ADDRESS'
+    keywords: sshd, Failed password
+    regex: 'sshd.*Failed password'
+
+RULES:
+- NEVER reconstruct the full log line as a regex.
+- NEVER use \d+, [0-9]+, [0-9a-fA-F]+, [0-9.]+, or similar patterns in place of token words.
+- NEVER convert these token names into patterns: NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
+    HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE. They are plain words — skip them when picking keywords.
+- Do NOT hardcode site-specific hostnames or environment labels.
+- Use .* (not .+) between keywords so empty spans are allowed.
 """
 
 
