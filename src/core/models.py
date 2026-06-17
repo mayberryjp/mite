@@ -214,39 +214,36 @@ De-escalate severity when:
 - the message is informational or expected during normal operation
 - there is no evidence of user impact, service failure, compromise, or data risk
 
-3. Create a Python-compatible regular expression that robustly matches this type of log message.
+3. Create a Python-compatible regular expression that matches this type of log message.
 
-TOKEN PLACEHOLDERS — HIGHEST PRIORITY RULE:
-The sample has already been preprocessed. All dynamic values have been replaced with named token placeholders:
-  IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE
+STRATEGY: Write a BROAD, KEYWORD-ANCHORED regex. Do NOT try to match the full log line.
 
-When a token placeholder appears in the sample, you MUST copy it VERBATIM into the regex as a literal string.
-Do NOT substitute token names with character classes or regex patterns — ever.
+STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify this event type.
+  Good: daemon name, action verb, event name, protocol name, stable field label.
+  Skip: anything dynamic — token placeholders (NUMBER, IP_ADDRESS, etc.), hostnames, version numbers.
 
-CORRECT (verbatim token in regex):
-  sample: 'uid=NUMBER'                         regex: 'uid=NUMBER'
-  sample: 'from IP_ADDRESS port NUMBER'        regex: 'from IP_ADDRESS port NUMBER'
-  sample: '0x HEX_VALUE bytes'                 regex: '0x HEX_VALUE bytes'
+STEP 2 — Join those keywords with .* between them.
 
-WRONG (converting token to character class — DO NOT DO THIS):
-  sample: 'uid=NUMBER'     ->  regex: 'uid=[0-9]+'       WRONG
-  sample: 'IP_ADDRESS'     ->  regex: numeric pattern    WRONG
-  sample: 'HEX_VALUE'      ->  regex: '[0-9a-fA-F]+'     WRONG
-  sample: 'VERSION'        ->  regex: dotted-number pat  WRONG
-  sample: 'MAC_ADDRESS'    ->  regex: hex-colon pattern  WRONG
+STEP 3 — Escape regex metacharacters in the keywords (brackets, dots, parens).
 
-ALL OTHER RULES (apply only to literal text that is NOT a token placeholder):
-The regex must:
-- work with Python re.search() and not require matching the full line
-- match the static/structural parts of the log using keywords, field names, program names, daemon names, protocol names, and stable message text
-- be specific enough to match this type of log, not overly broad
-- be general enough to match future logs of the same pattern
-- avoid embedding one-time values unless they define the event type
-- NEVER use overly broad patterns like \\S+ for structured/bounded literal values
+Examples:
+  sample: 'NUMBER:NUMBER+NUMBER:NUMBER FIREWALL_HOST dhcp6c NUMBER - - Sending Solicit'
+  keywords: dhcp6c, Sending Solicit
+  regex: 'dhcp6c.*Sending Solicit'
 
-For hostname literals still present in the sample (not replaced by a token), do NOT hardcode site-specific segments. Prefer: [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+
+  sample: 'hostapd NUMBER: wifi0ap1: STA MAC_ADDRESS IEEE NUMBER: disassociated'
+  keywords: hostapd, STA, disassociated
+  regex: 'hostapd.*STA.*disassociated'
 
-Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
+  sample: 'pam_unix(cron:session): session opened for user root(uid=NUMBER)'
+  keywords: pam_unix, cron:session, session opened
+  regex: 'pam_unix.*cron:session.*session opened'
+
+Rules:
+- NEVER reconstruct the full log line as a regex.
+- NEVER convert token placeholder names (NUMBER, IP_ADDRESS, MAC_ADDRESS, etc.) into character classes like [0-9]+.
+- Do NOT hardcode site-specific hostnames or environment labels.
+- Use .* (not .+) between keywords so empty spans are allowed.
 
 Output requirements:
 
