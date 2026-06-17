@@ -141,64 +141,49 @@ def _render_prompt_template(prompt_template, patterns_text):
 
 def preprocess_sample_for_ai(sample_message):
     """
-    Apply semantic preprocessing to sample message so AI focuses on structure.
-    Specific dynamic values are replaced with typed tokens first, then a
-    configurable fallback regex masks remaining noisy values.
+    Apply user-managed regex tokenization rules so AI focuses on structure.
+    Rules come from ai_custom_tokens and are applied in order.
 
     Example:
     "192.168.1.1 firewall[1234]: 0xDEADBEEF"
     -> "IP_ADDRESS firewall[NUMBER]: HEX_VALUE"
     """
-    preprocessing_regex = get_setting("ai_sample_preprocessing_regex") or (
-        r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+|0x[0-9a-fA-F]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}|\b\d+\b"
-    )
-
     try:
         text = sample_message or ""
 
-        # Apply user-defined custom keyword tokens first (exact string replacements).
+        # Apply user-managed regex tokenization rules in order.
         raw_custom = get_setting("ai_custom_tokens") or "[]"
         try:
             custom_tokens = json.loads(raw_custom)
-            if isinstance(custom_tokens, list) and custom_tokens:
-                for entry in custom_tokens:
-                    if (
-                        isinstance(entry, list)
-                        and len(entry) == 2
-                        and isinstance(entry[0], str)
-                        and isinstance(entry[1], str)
-                        and entry[0]
-                    ):
-                        text = text.replace(entry[0], entry[1])
+            if not isinstance(custom_tokens, list):
+                raise TypeError("ai_custom_tokens must be a JSON array")
+
+            for index, entry in enumerate(custom_tokens):
+                if (
+                    not isinstance(entry, list)
+                    or len(entry) != 2
+                    or not isinstance(entry[0], str)
+                    or not isinstance(entry[1], str)
+                    or not entry[0]
+                    or not entry[1]
+                ):
+                    continue
+
+                try:
+                    text = re.sub(entry[0], entry[1], text)
+                except re.error as e:
+                    log_error(
+                        logger,
+                        f"[ERROR] Invalid ai_custom_tokens regex at index {index}: {e}",
+                    )
         except (json.JSONDecodeError, TypeError):
             log_error(logger, "[ERROR] ai_custom_tokens is not valid JSON; skipping.")
 
-        # Replace well-known dynamic patterns with typed placeholders.
-        typed_replacements = [
-            (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "IP_ADDRESS"),
-            (r"\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}\b", "MAC_ADDRESS"),
-            (r"\b0x[0-9a-fA-F]+\b", "HEX_VALUE"),
-            (
-                r"\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b",
-                "TIMESTAMP",
-            ),
-            (r"\b\d{4}-\d{2}-\d{2}\b", "DATE"),
-            (r"\b\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2})?\b", "TIME"),
-            (r"\b[0-9]+(?:\.[0-9]+)+\b", "VERSION"),
-            (r"\b\d+\b", "NUMBER"),
-        ]
-
-        for pattern, replacement in typed_replacements:
-            text = re.sub(pattern, replacement, text)
-
-        # Final pass for any custom/user-defined dynamic patterns.
-        text = re.sub(preprocessing_regex, "DYNAMIC_VALUE", text)
-
         return text
-    except re.error as e:
+    except Exception as e:
         log_error(
             logger,
-            f"[ERROR] Invalid preprocessing regex: {e}. Using original sample.",
+            f"[ERROR] Preprocessing failed: {e}. Using original sample.",
         )
         return sample_message
 

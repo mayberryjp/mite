@@ -15,7 +15,6 @@ from src.core.models import (
     CONST_CREATE_SETTINGS_SQL,
     DEFAULT_AI_CUSTOM_TOKENS,
     DEFAULT_AI_PROMPT_TEMPLATE,
-    DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
 )
 from src.utils.locallogging import log_error, log_info
 
@@ -70,16 +69,21 @@ def init_database():
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE),
         )
-        # Seed/overwrite sample preprocessing regex to strip dynamic values before AI classification
-        cursor.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_sample_preprocessing_regex", DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX),
-        )
-        # Seed custom keyword tokens if not already set (user may have customized these)
+        # Seed tokenization rules (regex->token) if not already set.
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
         )
+        # Backfill older installs that still have an empty token list.
+        cursor.execute("SELECT value FROM settings WHERE key = ?", ("ai_custom_tokens",))
+        current_custom = cursor.fetchone()
+        if not current_custom or not (current_custom[0] or "").strip() or (
+            current_custom[0] or ""
+        ).strip() == "[]":
+            cursor.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
+            )
         # Seed default minimum message length if not already set
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

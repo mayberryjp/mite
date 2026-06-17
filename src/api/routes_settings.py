@@ -13,7 +13,6 @@ from src.core.db import (
 from src.core.models import (
     DEFAULT_AI_CUSTOM_TOKENS,
     DEFAULT_AI_PROMPT_TEMPLATE,
-    DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
 )
 from src.utils.locallogging import log_error, log_info
 
@@ -24,14 +23,8 @@ EDITABLE_SETTINGS = {
         "type": "string",
         "allow_empty": False,
     },
-    "ai_sample_preprocessing_regex": {
-        "description": "Regex to mask/strip dynamic values (IPs, timestamps, hex, MACs, numbers) from sample logs before sending to AI. Matched portions are replaced with <X>. Helps AI focus on structural patterns.",
-        "default": DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
-        "type": "string",
-        "allow_empty": False,
-    },
     "ai_custom_tokens": {
-        "description": 'User-defined keyword replacements applied before all other preprocessing. JSON array of ["literal_string", "TOKEN_NAME"] pairs. Example: [["firewall.office.example.com", "FIREWALL_HOST"], ["db.prod.example.com", "DB_HOST"]]',
+        "description": 'User-managed tokenization rules applied in order using regex substitution. JSON array of ["regex_pattern", "TOKEN_NAME"] pairs. Example: [["\\\\b(?:\\\\d{1,3}\\\\.){3}\\\\d{1,3}\\\\b", "IP_ADDRESS"], ["firewall\\\\.office\\\\.example\\\\.com", "FIREWALL_HOST"]]',
         "default": DEFAULT_AI_CUSTOM_TOKENS,
         "type": "json_list_of_pairs",
         "allow_empty": True,
@@ -212,7 +205,7 @@ def _normalize_setting_value(key, value):
                 or not entry[1]
             ):
                 raise ValueError(
-                    f'entry {i} must be a two-element array of non-empty strings: ["match", "TOKEN_NAME"]'
+                    f'entry {i} must be a two-element array of non-empty strings: ["regex_pattern", "TOKEN_NAME"]'
                 )
 
         return json.dumps(pairs)

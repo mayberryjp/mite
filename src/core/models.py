@@ -1,3 +1,5 @@
+import json
+
 CONST_CREATE_LOGS_SQL = """
     CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,16 +119,24 @@ CONST_CREATE_SETTINGS_SQL = """
     );
 """
 
-# Regex to mask/strip dynamic values before sending sample logs to AI
-# By default, masks out numbers and special characters (IP-like patterns, timestamps, hex, MACs, versions)
-# so AI focuses on structural patterns. Masked portions will be replaced with <X> placeholder.
-# Example: "192.168.1.1 firewall[1234]: 0xDEADBEEF" -> "<X> firewall[<X>]: <X>"
-DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+|0x[0-9a-fA-F]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}|\b\d+\b"
+# User-defined tokenization rules: JSON array of ["regex_pattern", "TOKEN_NAME"] pairs.
+# Rules are applied in order with re.sub().
+# Example: [["\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b", "IP_ADDRESS"]]
+DEFAULT_AI_CUSTOM_TOKEN_RULES = [
+    [
+        r"\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b",
+        "TIMESTAMP",
+    ],
+    [r"\b\d{4}-\d{2}-\d{2}\b", "DATE"],
+    [r"\b\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2})?\b", "TIME"],
+    [r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "IP_ADDRESS"],
+    [r"\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}\b", "MAC_ADDRESS"],
+    [r"\b0x[0-9a-fA-F]+\b", "HEX_VALUE"],
+    [r"\b[0-9]+(?:\.[0-9]+)+\b", "VERSION"],
+    [r"\b\d+\b", "NUMBER"],
+]
 
-# User-defined keyword tokens: JSON array of ["literal_string", "TOKEN_NAME"] pairs.
-# Applied as exact-string replacements before all other preprocessing.
-# Example: [["firewall.office.mayberry.farm", "FIREWALL_HOST"], ["192.168.1.0/24", "MGMT_NET"]]
-DEFAULT_AI_CUSTOM_TOKENS = "[]"
+DEFAULT_AI_CUSTOM_TOKENS = json.dumps(DEFAULT_AI_CUSTOM_TOKEN_RULES)
 
 DEFAULT_AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls, routers, switches, wireless access points, VPNs, Docker hosts, databases, monitoring systems, and other infrastructure devices.
 
