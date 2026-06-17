@@ -1277,6 +1277,45 @@ def delete_all_patterns():
         disconnect_from_db(conn)
 
 
+def delete_old_patterns(days):
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cutoff = f"-{days} days"
+        cursor.execute(
+            "SELECT id FROM patterns WHERE datetime(last_seen_at) < datetime('now', 'localtime', ?)",
+            (cutoff,),
+        )
+        pattern_ids = [row[0] for row in cursor.fetchall()]
+        if not pattern_ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in pattern_ids)
+        cursor.execute(
+            f"DELETE FROM pattern_stats WHERE pattern_id IN ({placeholders})",
+            pattern_ids,
+        )
+        cursor.execute(
+            f"DELETE FROM alerts WHERE pattern_id IN ({placeholders})",
+            pattern_ids,
+        )
+        cursor.execute(
+            f"DELETE FROM logs WHERE pattern_id IN ({placeholders})",
+            pattern_ids,
+        )
+        cursor.execute(
+            f"DELETE FROM patterns WHERE id IN ({placeholders})",
+            pattern_ids,
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
 def delete_old_alerts(days):
     conn = connect_to_db()
     if not conn:
