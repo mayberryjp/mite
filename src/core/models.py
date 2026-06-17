@@ -221,9 +221,10 @@ STRATEGY: Write a BROAD, KEYWORD-ANCHORED regex. Do NOT try to match the full lo
 STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify this event type.
   Good: daemon name, action verb, event name, protocol name, stable field label.
     Skip: anything dynamic — token placeholders (NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
-        HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE), hostnames, version numbers.
+          HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE), hostnames, version numbers.
+      CRITICAL: Select keywords in the order they appear in the sample message. Left-to-right order matters. NEVER reorder.
 
-STEP 2 — Join those keywords with .* between them.
+STEP 2 — Join those keywords with .* between them, preserving the left-to-right order from the sample.
 
 STEP 3 — Escape regex metacharacters in the keywords (brackets, dots, parens).
 
