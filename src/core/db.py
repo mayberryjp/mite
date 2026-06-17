@@ -85,6 +85,10 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("min_message_length", "50"),
         )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("discarded_too_small_count", "0"),
+        )
         # Seed Discord notification settings if not already set
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -1018,6 +1022,13 @@ def get_stats():
         total_logs = cursor.fetchone()[0]
 
         cursor.execute(
+            "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
+            ("discarded_too_small_count",),
+        )
+        row = cursor.fetchone()
+        discarded_too_small_count = row[0] if row else 0
+
+        cursor.execute(
             "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', 'localtime', '-1 hour')"
         )
         alerts_last_hour = cursor.fetchone()[0]
@@ -1064,6 +1075,7 @@ def get_stats():
             "logs_last_hour": logs_last_hour,
             "logs_last_24h": logs_last_24h,
             "total_logs": total_logs,
+            "discarded_too_small_count": discarded_too_small_count,
             "alerts_last_hour": alerts_last_hour,
             "alerts_last_24h": alerts_last_24h,
             "total_alerts": total_alerts,
@@ -1153,6 +1165,33 @@ def set_setting(key, value):
             disconnect_from_db(conn)
 
     execute_with_retry(_upsert)
+
+
+def increment_discarded_too_small_count():
+    """Increment the count of logs dropped for insufficient meaningful content."""
+
+    def _increment():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                ("discarded_too_small_count", "0"),
+            )
+            cursor.execute(
+                """UPDATE settings
+                   SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1,
+                       updated_at = datetime('now', 'localtime')
+                   WHERE key = ?""",
+                ("discarded_too_small_count",),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_increment)
 
 
 def get_all_settings():

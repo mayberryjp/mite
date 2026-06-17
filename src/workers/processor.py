@@ -15,6 +15,7 @@ from src.core.db import (
     get_patterns_with_regex,
     get_setting,
     get_unprocessed_logs,
+    increment_discarded_too_small_count,
     increment_host_alert_count,
     increment_noise_stat,
     increment_pattern_hit,
@@ -279,6 +280,7 @@ def process_log(log_entry):
     else:
         if not _is_meaningful_message(tokenized_message):
             # Not enough real content — silently drop
+            increment_discarded_too_small_count()
             delete_logs([log_entry["id"]])
             return True
 
