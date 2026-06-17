@@ -209,7 +209,7 @@ The regex must:
 
 - work with Python re.search() and not require matching the full line
 - match the static/structural parts of the log using keywords, field names, program names, daemon names, protocol names, and stable message text
-- use \\S+, .+?, \\d+, [0-9a-fA-F]+, or similar patterns for dynamic values
+- use [0-9a-zA-Z_-]+, .+?, [0-9]+, [0-9a-fA-F]+, or similar specific patterns for dynamic values
 - be specific enough to match this type of log, not overly broad
 - be general enough to match future logs of the same pattern
 - avoid embedding one-time values unless they define the event type
@@ -219,6 +219,12 @@ Dynamic values to generalize: timestamps, dates, hostnames, source/destination I
 When generalizing hostnames, avoid hardcoding site-specific labels or full domain names. Prefer hostname patterns that work across environments, such as [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+.
 
 For version and protocol tokens with dots (e.g., 802.11, HTTP/1.1, TLS1.3), do NOT use [0-9]+ alone. Instead use [0-9]+(?:[.][0-9]+)* or [0-9.]+ to handle dotted numeric sequences.
+
+For hex values (e.g., 0xABCD), use [0-9a-fA-F]+ instead of non-whitespace patterns which are too greedy and will consume commas and delimiters.
+
+For CSV fields with empty values: represent as ,, (two adjacent commas), NOT as three commas. Use [^,]* for optional values between delimiters.
+
+NEVER use overly broad patterns like [^\\s]+ or non-whitespace for bounded/structured values; always use specific character classes.
 
 Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
 

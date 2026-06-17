@@ -58,16 +58,23 @@ REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
 - Treat hostnames/FQDNs as dynamic values unless a specific hostname is the event identity.
 - Do NOT hardcode site-specific segments (for example: "mayberry", "corp", "prod", "lab").
 - For host tokens, prefer broad hostname patterns such as:\n  - [A-Za-z0-9._-]+\n  - [A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+
-- For version/protocol tokens with dots (802.11, HTTP/1.1, TLS1.3, etc.), use \d+(?:\.\d+)* or [0-9.]+ instead of \d+ alone.
+- For version/protocol tokens with dots (802.11, HTTP/1.1, TLS1.3, etc.), use [0-9]+(?:[.][0-9]+)* or [0-9.]+ instead of [0-9]+ alone.
+- For hex values (example: 0xABCD), use [0-9a-fA-F]+ instead of [^\s]+ or \S+ (which are too greedy and will consume commas and other delimiters).
+- For CSV fields: if a field can be empty, represent empty as ,, not ,\,,. Use [^,]* for optional values.
 - Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
 - Do NOT over-constrain optional suffixes like domain depth, TLD, minor version, or local naming conventions.
 - If sample lines differ only by hostname/site labels, generated regex MUST match all of them.
+- NEVER use [^\s]+ or \S+ for structured/bounded values; use specific character classes like [0-9a-fA-F]+, [A-Za-z0-9-]+, etc.
 
 Examples:
 - Bad (too strict): firewall\.farm\.mayberry\.farm
 - Better (portable): firewall\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*
-- Bad (too strict): IEEE \d+: disassociated
-- Better (handles dotted versions): IEEE [0-9.]+: disassociated or IEEE \d+(?:\.\d+)*: disassociated
+- Bad (too strict): IEEE [0-9]+: disassociated
+- Better (handles dotted versions): IEEE [0-9.]+: disassociated or IEEE [0-9]+(?:[.][0-9]+)*: disassociated
+- Bad (greedy hex): 0x\S+,
+- Better (stops at comma): 0x[0-9a-fA-F]+,
+- Bad (wrong empty field): something,\,,else (expects 3 commas)
+- Better (actual empty field): something,,else (two adjacent commas with nothing between)
 """
 
 
