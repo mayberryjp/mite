@@ -224,6 +224,13 @@ def _classify_until_regex_matches(
             continue
 
         if _pattern_regex_matches_message(ai_pattern, tokenized_message):
+            accepted_regex = _truncate_for_log(
+                (ai_pattern.get("match_regex") or "").strip()
+            )
+            log_info(
+                logger,
+                f"[INFO] Pattern {pattern_id} AI regex accepted (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}): {accepted_regex!r}",
+            )
             _invalidate_regex_cache()
             # Refresh immediately so the very next log uses the new regex.
             _refresh_regex_cache()
