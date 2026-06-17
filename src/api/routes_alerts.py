@@ -3,7 +3,12 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_alerts, get_hourly_alert_counts, delete_all_alerts, delete_alert
+from src.core.db import (
+    delete_alert,
+    delete_all_alerts,
+    get_alerts,
+    get_hourly_alert_counts,
+)
 from src.utils.locallogging import log_error, log_info
 
 
@@ -22,14 +27,20 @@ def setup_alerts_routes(app):
             search = request.params.get("search")
 
             items, total = get_alerts(
-                limit=limit, offset=offset, severity=severity,
-                host=host, source_ip=source_ip, pattern_id=pattern_id,
+                limit=limit,
+                offset=offset,
+                severity=severity,
+                host=host,
+                source_ip=source_ip,
+                pattern_id=pattern_id,
                 search=search,
             )
 
             response.content_type = "application/json"
             log_info(logger, f"[INFO] Retrieved {len(items)} alerts (total {total})")
-            return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
+            return json.dumps(
+                {"items": items, "limit": limit, "offset": offset, "total": total}
+            )
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get alerts: {e}")
             response.status = 500

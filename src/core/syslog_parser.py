@@ -1,5 +1,5 @@
-import re
 import logging
+import re
 from datetime import datetime
 
 from src.utils.locallogging import log_debug
@@ -9,29 +9,50 @@ logger = logging.getLogger(__name__)
 # RFC 3164 style: <PRI>TIMESTAMP HOSTNAME APP-NAME[PID]: MESSAGE
 # Also handles plain text lines with no structure
 SYSLOG_RE = re.compile(
-    r"^(?:<(\d{1,3})>)?"                          # optional PRI
+    r"^(?:<(\d{1,3})>)?"  # optional PRI
     r"\s*"
-    r"(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})?"    # optional BSD timestamp
+    r"(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})?"  # optional BSD timestamp
     r"\s*"
-    r"(\S+)?"                                       # optional hostname
+    r"(\S+)?"  # optional hostname
     r"\s+"
-    r"(\S+?)?"                                      # optional program
-    r"(?:\[(\d+)\])?"                               # optional [pid]
+    r"(\S+?)?"  # optional program
+    r"(?:\[(\d+)\])?"  # optional [pid]
     r":\s*"
-    r"(.*)"                                         # message
+    r"(.*)"  # message
 )
 
 FACILITY_MAP = {
-    0: "kern", 1: "user", 2: "mail", 3: "daemon", 4: "auth",
-    5: "syslog", 6: "lpr", 7: "news", 8: "uucp", 9: "cron",
-    10: "authpriv", 11: "ftp", 16: "local0", 17: "local1",
-    18: "local2", 19: "local3", 20: "local4", 21: "local5",
-    22: "local6", 23: "local7",
+    0: "kern",
+    1: "user",
+    2: "mail",
+    3: "daemon",
+    4: "auth",
+    5: "syslog",
+    6: "lpr",
+    7: "news",
+    8: "uucp",
+    9: "cron",
+    10: "authpriv",
+    11: "ftp",
+    16: "local0",
+    17: "local1",
+    18: "local2",
+    19: "local3",
+    20: "local4",
+    21: "local5",
+    22: "local6",
+    23: "local7",
 }
 
 SEVERITY_MAP = {
-    0: "emerg", 1: "alert", 2: "crit", 3: "err",
-    4: "warning", 5: "notice", 6: "info", 7: "debug",
+    0: "emerg",
+    1: "alert",
+    2: "crit",
+    3: "err",
+    4: "warning",
+    5: "notice",
+    6: "info",
+    7: "debug",
 }
 
 
@@ -76,7 +97,9 @@ def parse_syslog_message(raw_line, source_ip=None):
         if msg:
             message = msg
     else:
-        log_debug(logger, f"[DEBUG] Could not parse syslog line, storing raw: {raw_line[:80]}")
+        log_debug(
+            logger, f"[DEBUG] Could not parse syslog line, storing raw: {raw_line[:80]}"
+        )
 
     return {
         "received_at": datetime.now().isoformat(),

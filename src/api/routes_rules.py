@@ -4,7 +4,21 @@ import re
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern, delete_all_patterns, delete_old_patterns, move_low_patterns_to_noise
+from src.core.db import (
+    delete_all_patterns,
+    delete_old_patterns,
+    delete_pattern,
+    get_all_pattern_stats,
+    get_all_patterns,
+    get_logs_by_pattern,
+    get_pattern_by_id,
+    get_pattern_stats,
+    move_low_patterns_to_noise,
+    update_pattern_ai_explanation,
+    update_pattern_regex,
+    update_pattern_title,
+    update_pattern_user_override,
+)
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
@@ -22,12 +36,16 @@ def setup_patterns_routes(app):
             classification = request.params.get("classification")
 
             items, total = get_all_patterns(
-                limit=limit, offset=offset, classification=classification,
+                limit=limit,
+                offset=offset,
+                classification=classification,
             )
 
             response.content_type = "application/json"
             log_info(logger, f"[INFO] Retrieved {len(items)} patterns (total {total})")
-            return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
+            return json.dumps(
+                {"items": items, "limit": limit, "offset": offset, "total": total}
+            )
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get patterns: {e}")
             response.status = 500
@@ -70,7 +88,13 @@ def setup_patterns_routes(app):
             title = data.get("title")
             ai_explanation = data.get("ai_explanation")
 
-            if user_override is not None and user_override not in {"critical", "high", "medium", "low", "noise"}:
+            if user_override is not None and user_override not in {
+                "critical",
+                "high",
+                "medium",
+                "low",
+                "noise",
+            }:
                 response.status = 400
                 return {"error": f"Invalid classification: {user_override}"}
 
@@ -154,9 +178,13 @@ def setup_patterns_routes(app):
             updated = move_low_patterns_to_noise()
             log_info(logger, f"[INFO] Reclassified {updated} low patterns to noise")
             response.content_type = "application/json"
-            return json.dumps({"status": "ok", "updated": updated, "from": "low", "to": "noise"})
+            return json.dumps(
+                {"status": "ok", "updated": updated, "from": "low", "to": "noise"}
+            )
         except Exception as e:
-            log_error(logger, f"[ERROR] Failed to reclassify low patterns to noise: {e}")
+            log_error(
+                logger, f"[ERROR] Failed to reclassify low patterns to noise: {e}"
+            )
             response.status = 500
             return {"error": str(e)}
 
@@ -168,7 +196,9 @@ def setup_patterns_routes(app):
                 response.status = 400
                 return json.dumps({"error": "days must be >= 1"})
             deleted = delete_old_patterns(days)
-            log_info(logger, f"[INFO] Deleted {deleted} patterns older than {days} days")
+            log_info(
+                logger, f"[INFO] Deleted {deleted} patterns older than {days} days"
+            )
             response.content_type = "application/json"
             return json.dumps({"status": "ok", "deleted": deleted, "days": days})
         except Exception as e:
@@ -196,9 +226,13 @@ def setup_patterns_routes(app):
             hours = int(request.params.get("hours", 100))
             stats = get_pattern_stats(pattern_id, hours=hours)
             response.content_type = "application/json"
-            return json.dumps({"pattern_id": pattern_id, "hours": hours, "stats": stats})
+            return json.dumps(
+                {"pattern_id": pattern_id, "hours": hours, "stats": stats}
+            )
         except Exception as e:
-            log_error(logger, f"[ERROR] Failed to get stats for pattern {pattern_id}: {e}")
+            log_error(
+                logger, f"[ERROR] Failed to get stats for pattern {pattern_id}: {e}"
+            )
             response.status = 500
             return {"error": str(e)}
 
@@ -210,8 +244,12 @@ def setup_patterns_routes(app):
             offset = int(request.params.get("offset", 0))
             items, total = get_logs_by_pattern(pattern_id, limit=limit, offset=offset)
             response.content_type = "application/json"
-            return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
+            return json.dumps(
+                {"items": items, "limit": limit, "offset": offset, "total": total}
+            )
         except Exception as e:
-            log_error(logger, f"[ERROR] Failed to get logs for pattern {pattern_id}: {e}")
+            log_error(
+                logger, f"[ERROR] Failed to get logs for pattern {pattern_id}: {e}"
+            )
             response.status = 500
             return {"error": str(e)}

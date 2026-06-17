@@ -1,11 +1,15 @@
 import hashlib
 import re
 
-
 # Replacement patterns ordered from most specific to least specific
 NORMALIZERS = [
     # UUIDs
-    (re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"), "<UUID>"),
+    (
+        re.compile(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+        ),
+        "<UUID>",
+    ),
     # MAC addresses
     (re.compile(r"(?:[0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}"), "<MAC>"),
     # IPv6 addresses (simplified)
@@ -13,9 +17,19 @@ NORMALIZERS = [
     # IPv4 addresses
     (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "<IP>"),
     # ISO timestamps (2024-01-15T12:30:45.123Z)
-    (re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"), "<TS>"),
+    (
+        re.compile(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"
+        ),
+        "<TS>",
+    ),
     # BSD syslog timestamps (Jan 15 12:30:45)
-    (re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b"), "<TS>"),
+    (
+        re.compile(
+            r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b"
+        ),
+        "<TS>",
+    ),
     # Date formats (2024-01-15, 01/15/2024)
     (re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b"), "<DATE>"),
     (re.compile(r"\b\d{2}[-/]\d{2}[-/]\d{4}\b"), "<DATE>"),
@@ -41,7 +55,7 @@ def _canonicalize_escapes(text):
         return ""
 
     # Convert JSON-escaped quotes into literal quotes.
-    text = text.replace(r'\"', '"').replace(r"\\'", "'")
+    text = text.replace(r"\"", '"').replace(r"\\'", "'")
 
     # Treat escaped line breaks/tabs as whitespace separators.
     text = re.sub(r"(?:\\r\\n|\\n|\\r|\\t)+", " ", text)

@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 
 import requests
 
@@ -43,15 +43,24 @@ def send_discord_message(content):
             log_info(logger, "[INFO] Discord message sent successfully")
             return True
         else:
-            log_error(logger, f"[ERROR] Discord webhook returned status {resp.status_code}: {resp.text}")
+            log_error(
+                logger,
+                f"[ERROR] Discord webhook returned status {resp.status_code}: {resp.text}",
+            )
             return False
     except Exception as e:
         log_error(logger, f"[ERROR] Failed to send Discord message: {e}")
         return False
 
 
-def format_alert_message(severity, pattern_text, host, source_ip, timestamp, message, ai_explanation):
-    emoji = "🚨" if severity in ("critical", "high") else "⚠️" if severity == "medium" else "ℹ️"
+def format_alert_message(
+    severity, pattern_text, host, source_ip, timestamp, message, ai_explanation
+):
+    emoji = (
+        "🚨"
+        if severity in ("critical", "high")
+        else "⚠️" if severity == "medium" else "ℹ️"
+    )
 
     text = f"""{emoji} Mite Alert: {severity.title() if severity else 'Unknown'}
 
@@ -69,6 +78,10 @@ AI Assessment:
     return text
 
 
-def send_alert_discord(severity, pattern_text, host, source_ip, timestamp, message, ai_explanation):
-    content = format_alert_message(severity, pattern_text, host, source_ip, timestamp, message, ai_explanation)
+def send_alert_discord(
+    severity, pattern_text, host, source_ip, timestamp, message, ai_explanation
+):
+    content = format_alert_message(
+        severity, pattern_text, host, source_ip, timestamp, message, ai_explanation
+    )
     return send_discord_message(content)

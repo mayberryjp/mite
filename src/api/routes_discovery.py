@@ -6,7 +6,6 @@ from bottle import Bottle, request, response
 from src.core.db import get_pending_patterns, get_setting
 from src.utils.locallogging import log_error, log_info
 
-
 AI_BATCH_SIZE_DEFAULT = 20
 
 
@@ -42,11 +41,14 @@ def setup_discovery_routes(app):
         logger = logging.getLogger(__name__)
         try:
             from src.core.ai_discovery import classify_patterns
+
             batch_size = _get_int_setting("ai_batch_size", AI_BATCH_SIZE_DEFAULT)
             pending = get_pending_patterns(limit=batch_size)
             if not pending:
                 response.content_type = "application/json"
-                return json.dumps({"status": "ok", "message": "No pending patterns to classify"})
+                return json.dumps(
+                    {"status": "ok", "message": "No pending patterns to classify"}
+                )
 
             result = classify_patterns(pending)
 

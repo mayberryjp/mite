@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 
 from src.utils.locallogging import log_info
 
@@ -31,14 +31,18 @@ AI_DISCOVERY_INTERVAL_SECONDS = int(os.getenv("AI_DISCOVERY_INTERVAL_SECONDS", "
 LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "14"))
 ALERT_RETENTION_DAYS = int(os.getenv("ALERT_RETENTION_DAYS", "30"))
 
+
 # Version — read from VERSION file
 def _get_version():
     try:
-        version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "VERSION")
+        version_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "VERSION"
+        )
         with open(version_file, "r") as f:
             return f.read().strip()
     except Exception:
         return "unknown"
+
 
 VERSION = _get_version()
 

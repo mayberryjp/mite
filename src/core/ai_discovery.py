@@ -4,18 +4,14 @@ import re
 
 import requests
 
-from src.core.config import (
-    AI_API_BASE_URL,
-    AI_API_KEY,
-    AI_MODEL,
-)
+from src.core.config import AI_API_BASE_URL, AI_API_KEY, AI_MODEL
 from src.core.db import (
-    get_pending_patterns,
-    record_ai_api_call,
     get_ai_api_call_count_24h,
-    update_pattern_classification,
+    get_pending_patterns,
     get_setting,
+    record_ai_api_call,
     set_setting,
+    update_pattern_classification,
 )
 from src.core.models import DEFAULT_AI_PROMPT_TEMPLATE
 from src.utils.locallogging import log_error, log_info
@@ -60,7 +56,9 @@ def _parse_ai_results(ai_content):
     """Parse AI output into JSON results using strict JSON decoding only."""
     json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
     if not json_match:
-        raise json.JSONDecodeError("Could not find JSON array in AI response", ai_content, 0)
+        raise json.JSONDecodeError(
+            "Could not find JSON array in AI response", ai_content, 0
+        )
     return json.loads(json_match.group())
 
 
@@ -125,13 +123,22 @@ def test_ai_connection():
 
 def classify_patterns(patterns):
     if not AI_API_BASE_URL or not AI_API_KEY:
-        return {"status": "error", "message": "AI API not configured — set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL"}
+        return {
+            "status": "error",
+            "message": "AI API not configured — set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL",
+        }
 
     if not _check_rate_limit():
         count = get_ai_api_call_count_24h()
         rate_limit = _get_ai_daily_rate_limit()
-        log_error(logger, f"[ERROR] AI rate limit reached: {count}/{rate_limit} calls in 24h window. Skipping classification.")
-        return {"status": "error", "message": f"Rate limit reached ({rate_limit} calls/day)"}
+        log_error(
+            logger,
+            f"[ERROR] AI rate limit reached: {count}/{rate_limit} calls in 24h window. Skipping classification.",
+        )
+        return {
+            "status": "error",
+            "message": f"Rate limit reached ({rate_limit} calls/day)",
+        }
 
     if not patterns:
         return {"status": "ok", "classified": 0}
@@ -168,8 +175,13 @@ def classify_patterns(patterns):
 
         if resp.status_code != 200:
             error_body = resp.text[:500]
-            log_error(logger, f"[ERROR] AI API returned HTTP {resp.status_code}: {error_body}")
-            return {"status": "error", "message": f"AI API HTTP {resp.status_code}: {error_body}"}
+            log_error(
+                logger, f"[ERROR] AI API returned HTTP {resp.status_code}: {error_body}"
+            )
+            return {
+                "status": "error",
+                "message": f"AI API HTTP {resp.status_code}: {error_body}",
+            }
 
         record_ai_api_call()
         ai_call_count = get_ai_api_call_count_24h()
@@ -194,11 +206,17 @@ def classify_patterns(patterns):
             title = result.get("title", "")[:40] if result.get("title") else None
 
             if classification == "critical":
-                log_info(logger, f"[INFO] AI returned 'critical' for pattern {pattern_id}; downgrading to 'high'")
+                log_info(
+                    logger,
+                    f"[INFO] AI returned 'critical' for pattern {pattern_id}; downgrading to 'high'",
+                )
                 classification = "high"
 
             if classification not in VALID_CLASSIFICATIONS:
-                log_error(logger, f"[ERROR] Invalid classification '{classification}' for pattern {pattern_id}")
+                log_error(
+                    logger,
+                    f"[ERROR] Invalid classification '{classification}' for pattern {pattern_id}",
+                )
                 continue
 
             # Validate the regex compiles
@@ -206,12 +224,19 @@ def classify_patterns(patterns):
                 try:
                     re.compile(match_regex)
                 except re.error as e:
-                    log_error(logger, f"[ERROR] Invalid regex from AI for pattern {pattern_id}: {e}")
+                    log_error(
+                        logger,
+                        f"[ERROR] Invalid regex from AI for pattern {pattern_id}: {e}",
+                    )
                     match_regex = ""
 
-            update_pattern_classification(pattern_id, classification, description, match_regex or None, title)
+            update_pattern_classification(
+                pattern_id, classification, description, match_regex or None, title
+            )
             classified += 1
-            log_info(logger, f"[INFO] Pattern {pattern_id} classified as '{classification}'")
+            log_info(
+                logger, f"[INFO] Pattern {pattern_id} classified as '{classification}'"
+            )
 
         return {"status": "ok", "classified": classified}
 
@@ -222,25 +247,36 @@ def classify_patterns(patterns):
         log_error(logger, f"[ERROR] AI API request timed out after 120 seconds")
         return {"status": "error", "message": "AI API request timed out"}
     except Exception as e:
-        log_error(logger, f"[ERROR] AI pattern classification failed: {type(e).__name__}: {e}")
+        log_error(
+            logger, f"[ERROR] AI pattern classification failed: {type(e).__name__}: {e}"
+        )
         return {"status": "error", "message": str(e)}
 
 
 def classify_single_pattern(pattern):
     """Classify a single pattern immediately. Returns the updated pattern dict or None on failure."""
     if not AI_API_BASE_URL or not AI_API_KEY:
-        log_error(logger, "[ERROR] AI API not configured — cannot classify pattern. Set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL")
+        log_error(
+            logger,
+            "[ERROR] AI API not configured — cannot classify pattern. Set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL",
+        )
         return None
 
     result = classify_patterns([pattern])
 
     if result.get("status") == "error":
-        log_error(logger, f"[ERROR] AI classification failed for pattern {pattern['id']}: {result.get('message', 'unknown error')}")
+        log_error(
+            logger,
+            f"[ERROR] AI classification failed for pattern {pattern['id']}: {result.get('message', 'unknown error')}",
+        )
         return None
 
     if result.get("classified", 0) > 0:
         from src.core.db import get_pattern_by_id
+
         return get_pattern_by_id(pattern["id"])
 
-    log_error(logger, f"[ERROR] AI returned no classification for pattern {pattern['id']}")
+    log_error(
+        logger, f"[ERROR] AI returned no classification for pattern {pattern['id']}"
+    )
     return None

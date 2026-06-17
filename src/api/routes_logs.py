@@ -3,7 +3,13 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_logs, get_recent_logs, get_hourly_log_counts, get_hourly_noise_counts, delete_all_logs
+from src.core.db import (
+    delete_all_logs,
+    get_hourly_log_counts,
+    get_hourly_noise_counts,
+    get_logs,
+    get_recent_logs,
+)
 from src.utils.locallogging import log_error, log_info
 
 
@@ -24,14 +30,22 @@ def setup_logs_routes(app):
             end = request.params.get("end")
 
             items, total = get_logs(
-                limit=limit, offset=offset, host=host, source_ip=source_ip,
-                program=program, severity=severity, search=search,
-                start=start, end=end,
+                limit=limit,
+                offset=offset,
+                host=host,
+                source_ip=source_ip,
+                program=program,
+                severity=severity,
+                search=search,
+                start=start,
+                end=end,
             )
 
             response.content_type = "application/json"
             log_info(logger, f"[INFO] Retrieved {len(items)} logs (total {total})")
-            return json.dumps({"items": items, "limit": limit, "offset": offset, "total": total})
+            return json.dumps(
+                {"items": items, "limit": limit, "offset": offset, "total": total}
+            )
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get logs: {e}")
             response.status = 500

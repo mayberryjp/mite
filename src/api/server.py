@@ -4,15 +4,15 @@ import os
 
 from bottle import Bottle, response
 
-from src.core.config import VERSION, MITE_DB_PATH
+from src.api.routes_alerts import setup_alerts_routes
+from src.api.routes_discovery import setup_discovery_routes
+from src.api.routes_hosts import setup_hosts_routes
+from src.api.routes_logs import setup_logs_routes
+from src.api.routes_rules import setup_patterns_routes
+from src.api.routes_settings import setup_settings_routes
+from src.core.config import MITE_DB_PATH, VERSION
 from src.core.db import get_stats
 from src.core.discord import send_discord_message
-from src.api.routes_logs import setup_logs_routes
-from src.api.routes_alerts import setup_alerts_routes
-from src.api.routes_hosts import setup_hosts_routes
-from src.api.routes_rules import setup_patterns_routes
-from src.api.routes_discovery import setup_discovery_routes
-from src.api.routes_settings import setup_settings_routes
 from src.utils.locallogging import log_error, log_info
 
 CORS_HEADERS = {
@@ -63,7 +63,9 @@ def api_test_discord():
             return json.dumps({"status": "ok", "message": "Test message sent"})
         else:
             response.status = 500
-            return json.dumps({"status": "error", "message": "Failed to send test message"})
+            return json.dumps(
+                {"status": "error", "message": "Failed to send test message"}
+            )
     except Exception as e:
         log_error(logger, f"[ERROR] Failed to send test Discord message: {e}")
         response.status = 500
@@ -93,7 +95,8 @@ if __name__ == "__main__":
     time.sleep(5)
     log_info(logger, "[INFO] Starting Mite API server...")
 
-    from src.core.config import MITE_API_HOST, MITE_API_PORT
     from waitress import serve
+
+    from src.core.config import MITE_API_HOST, MITE_API_PORT
 
     serve(app, host=MITE_API_HOST, port=MITE_API_PORT, threads=10)

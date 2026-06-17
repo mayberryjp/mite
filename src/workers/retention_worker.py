@@ -11,14 +11,19 @@ RETENTION_CHECK_INTERVAL_DEFAULT = 3600
 
 
 def _get_retention_interval_seconds():
-    raw_value = get_setting("retention_check_interval_seconds", str(RETENTION_CHECK_INTERVAL_DEFAULT))
+    raw_value = get_setting(
+        "retention_check_interval_seconds", str(RETENTION_CHECK_INTERVAL_DEFAULT)
+    )
     try:
         parsed = int(raw_value)
         if parsed < 1:
             raise ValueError("retention_check_interval_seconds must be >= 1")
         return parsed
     except (TypeError, ValueError):
-        log_error(logger, f"[ERROR] Invalid setting 'retention_check_interval_seconds' value '{raw_value}', using default {RETENTION_CHECK_INTERVAL_DEFAULT}")
+        log_error(
+            logger,
+            f"[ERROR] Invalid setting 'retention_check_interval_seconds' value '{raw_value}', using default {RETENTION_CHECK_INTERVAL_DEFAULT}",
+        )
         return RETENTION_CHECK_INTERVAL_DEFAULT
 
 

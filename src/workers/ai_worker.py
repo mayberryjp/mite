@@ -1,8 +1,8 @@
 import logging
 import time
 
-from src.core.db import get_pending_patterns, get_setting, init_database
 from src.core.ai_discovery import classify_patterns
+from src.core.db import get_pending_patterns, get_setting, init_database
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,10 @@ def _get_int_setting(key, default_value, min_value=1):
             raise ValueError(f"{key} must be >= {min_value}")
         return parsed
     except (TypeError, ValueError):
-        log_error(logger, f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}")
+        log_error(
+            logger,
+            f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
+        )
         return default_value
 
 
@@ -48,5 +51,7 @@ if __name__ == "__main__":
         except Exception as e:
             log_error(logger, f"[ERROR] AI worker error: {type(e).__name__}: {e}")
 
-        sleep_seconds = _get_int_setting("ai_discovery_interval_seconds", AI_DISCOVERY_INTERVAL_DEFAULT)
+        sleep_seconds = _get_int_setting(
+            "ai_discovery_interval_seconds", AI_DISCOVERY_INTERVAL_DEFAULT
+        )
         time.sleep(sleep_seconds)
