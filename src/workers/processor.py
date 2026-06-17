@@ -165,6 +165,9 @@ def _truncate_for_log(text, limit=500):
 
 def _pattern_regex_matches_message(pattern, message):
     """Return True when a pattern's regex is present and matches the current log message."""
+    if not pattern:
+        return False
+
     match_regex = pattern.get("match_regex")
     if not match_regex:
         return False
@@ -266,6 +269,8 @@ def process_log(log_entry):
 
     # Step 1: Try matching against AI-provided regexes from known patterns
     regex_match_id, regex_classification = match_by_regex(tokenized_message)
+    pattern = None
+    pattern_id = None
 
     if regex_match_id:
         # Matched an existing pattern via regex
@@ -277,6 +282,14 @@ def process_log(log_entry):
             delete_logs([log_entry["id"]])
             return True
         pattern = get_pattern_by_id(pattern_id)
+        if not pattern:
+            log_error(
+                logger,
+                f"[ERROR] Regex matched missing pattern id={pattern_id}; dropping log {log_entry['id']}",
+            )
+            _invalidate_regex_cache()
+            delete_logs([log_entry["id"]])
+            return True
     else:
         if not _is_meaningful_message(tokenized_message):
             # Not enough real content — silently drop
@@ -305,6 +318,14 @@ def process_log(log_entry):
                 timestamp=log_entry["received_at"],
             )
             pattern = get_pattern_by_id(pattern_id)
+
+        if not pattern:
+            log_error(
+                logger,
+                f"[ERROR] Pattern lookup failed for log {log_entry['id']} (pattern_id={pattern_id}); dropping log",
+            )
+            delete_logs([log_entry["id"]])
+            return True
 
         if not _pattern_regex_matches_message(pattern, tokenized_message):
             log_info(
