@@ -147,6 +147,14 @@ def get_effective_classification(pattern):
     return pattern.get("user_override") or pattern.get("classification") or "pending"
 
 
+def _truncate_for_log(text, limit=500):
+    if text is None:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "...<truncated>"
+
+
 def _pattern_regex_matches_message(pattern, message):
     """Return True when a pattern's regex is present and matches the current log message."""
     match_regex = pattern.get("match_regex")
@@ -191,10 +199,14 @@ def _classify_until_regex_matches(
             _refresh_regex_cache()
             return ai_pattern
 
+        debug_regex = _truncate_for_log((ai_pattern.get("match_regex") or "").strip())
+        debug_message = _truncate_for_log(message)
         log_error(
             logger,
             f"[ERROR] AI regex did not match source log for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}); retrying",
         )
+        log_error(logger, f"[DEBUG] Pattern {pattern_id} regex: {debug_regex!r}")
+        log_error(logger, f"[DEBUG] Pattern {pattern_id} message: {debug_message!r}")
 
     return None
 
