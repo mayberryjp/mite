@@ -2,11 +2,11 @@ import logging
 import re
 import sys
 import time
-import uuid
 
 from src.core.ai_discovery import classify_single_pattern, test_ai_connection
 from src.core.db import (
     delete_logs,
+    get_pattern_by_hash,
     get_pattern_by_id,
     get_patterns_with_regex,
     get_setting,
@@ -22,7 +22,7 @@ from src.core.db import (
     upsert_host,
 )
 from src.core.discord import send_alert_discord
-from src.core.pattern_extractor import extract_pattern
+from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ PROCESS_INTERVAL = PROCESS_INTERVAL_DEFAULT
 PROCESS_FETCH_LIMIT_DEFAULT = 100
 PROCESS_FETCH_LIMIT = PROCESS_FETCH_LIMIT_DEFAULT
 REGEX_CACHE_TTL_DEFAULT = 60
+MAX_AI_REGEX_ATTEMPTS = 3
 
 
 def _load_min_message_length_setting():
@@ -146,6 +147,58 @@ def get_effective_classification(pattern):
     return pattern.get("user_override") or pattern.get("classification") or "pending"
 
 
+def _pattern_regex_matches_message(pattern, message):
+    """Return True when a pattern's regex is present and matches the current log message."""
+    match_regex = pattern.get("match_regex")
+    if not match_regex:
+        return False
+
+    try:
+        return re.search(match_regex, message) is not None
+    except re.error as e:
+        log_error(
+            logger,
+            f"[ERROR] Stored regex is invalid for pattern {pattern.get('id')}: {e}",
+        )
+        return False
+
+
+def _classify_until_regex_matches(
+    pattern_id, normalized_pattern, message, host=None, program=None
+):
+    """Classify with AI and require regex to match the originating log before accepting."""
+    for attempt in range(1, MAX_AI_REGEX_ATTEMPTS + 1):
+        ai_pattern = classify_single_pattern(
+            {
+                "id": pattern_id,
+                "pattern_text": normalized_pattern,
+                "sample_message": message,
+                "host": host,
+                "program": program,
+            }
+        )
+
+        if not ai_pattern:
+            log_error(
+                logger,
+                f"[ERROR] AI classification returned no result for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS})",
+            )
+            continue
+
+        if _pattern_regex_matches_message(ai_pattern, message):
+            _invalidate_regex_cache()
+            # Refresh immediately so the very next log uses the new regex.
+            _refresh_regex_cache()
+            return ai_pattern
+
+        log_error(
+            logger,
+            f"[ERROR] AI regex did not match source log for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}); retrying",
+        )
+
+    return None
+
+
 def process_log(log_entry):
     """Process a single log entry. Returns False if processing should stop (AI failure on new pattern)."""
 
@@ -178,47 +231,55 @@ def process_log(log_entry):
             delete_logs([log_entry["id"]])
             return True
 
-        # Step 2: New pattern — insert then BLOCK and send to AI
-        pattern_hash = str(uuid.uuid4())  # Random GUID for uniqueness
-        pattern_id = insert_pattern(
-            pattern_hash=pattern_hash,
-            pattern_text=normalized_pattern,
-            sample_message=message,
-            host=log_entry.get("host"),
-            program=log_entry.get("program"),
-            timestamp=log_entry["received_at"],
-        )
-        log_info(
-            logger,
-            f"[INFO] New log type — sending to AI for classification: {normalized_pattern[:80]}",
-        )
+        # Deterministic pattern identity prevents duplicate patterns for equivalent logs.
+        pattern_hash = hash_pattern(normalized_pattern)
+        pattern = get_pattern_by_hash(pattern_hash)
 
-        ai_pattern = classify_single_pattern(
-            {
-                "id": pattern_id,
-                "pattern_text": normalized_pattern,
-                "sample_message": message,
-                "host": log_entry.get("host"),
-                "program": log_entry.get("program"),
-            }
-        )
-
-        if ai_pattern:
-            pattern = ai_pattern
-            _invalidate_regex_cache()
+        if pattern:
+            pattern_id = pattern["id"]
+            increment_pattern_hit(pattern_id, log_entry["received_at"])
             log_info(
                 logger,
-                f"[INFO] AI classified as '{pattern.get('classification')}' title='{pattern.get('title', '')}': {normalized_pattern[:80]}",
+                f"[INFO] Reusing existing pattern by hash {pattern_hash} (id={pattern_id})",
             )
         else:
-            # AI failed — mark this log processed but STOP processing more logs
-            log_error(
-                logger,
-                "[ERROR] AI classification failed — stopping processing until next cycle",
+            pattern_id = insert_pattern(
+                pattern_hash=pattern_hash,
+                pattern_text=normalized_pattern,
+                sample_message=message,
+                host=log_entry.get("host"),
+                program=log_entry.get("program"),
+                timestamp=log_entry["received_at"],
             )
-            mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
-            increment_pattern_stat(pattern_id, log_entry["received_at"])
-            return False
+            pattern = get_pattern_by_id(pattern_id)
+
+        if not _pattern_regex_matches_message(pattern, message):
+            log_info(
+                logger,
+                f"[INFO] No regex match for current log; requesting AI classification for pattern {pattern_id}",
+            )
+
+            ai_pattern = _classify_until_regex_matches(
+                pattern_id,
+                normalized_pattern,
+                message,
+                host=log_entry.get("host"),
+                program=log_entry.get("program"),
+            )
+
+            if ai_pattern:
+                pattern = ai_pattern
+                log_info(
+                    logger,
+                    f"[INFO] AI classification accepted for pattern {pattern_id}: '{pattern.get('classification')}' title='{pattern.get('title', '')}'",
+                )
+            else:
+                # Do not process this or subsequent logs in this cycle while AI resolution is incomplete.
+                log_error(
+                    logger,
+                    f"[ERROR] AI could not produce a matching regex for pattern {pattern_id}; stopping processing until next cycle",
+                )
+                return False
 
     # Record hourly stats for this pattern
     increment_pattern_stat(pattern_id, log_entry["received_at"])
