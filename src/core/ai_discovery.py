@@ -61,7 +61,8 @@ STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify th
     Good keywords: daemon name, action verb, event name, protocol name, stable field label.
     Bad keywords: anything that looks dynamic — token placeholders (NUMBER, IP_ADDRESS, MAC_ADDRESS,
         HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, DYNAMIC_VALUE), hostnames, paths with version numbers.
-    CRITICAL: Select keywords in the order they appear in the sample message. Left-to-right order matters.
+    CRITICAL: Select keywords in the order they appear in the sample message. Left-to-right order matters. NEVER reorder.
+    CRITICAL: Every keyword must be copied from literal text that already exists in the sample. Do NOT invent, infer, summarize, or normalize new words.
 
 STEP 2 — Join those keywords with .* between them, preserving the left-to-right order from the sample.
     The result matches any log containing those keywords in the same order, regardless of what is between them.
@@ -87,6 +88,8 @@ EXAMPLES (follow this pattern exactly):
 
 RULES:
 - NEVER reconstruct the full log line as a regex.
+- NEVER reorder keywords. If the sample reads 'Starting motd-news.service', write 'Starting.*motd-news\.service', not 'motd-news\.service.*Starting'.
+- NEVER add words to the regex that do not appear in the sample message. If the sample contains 'msg="stopping restart-manager"', write 'stopping.*restart-manager' and not 'dockerd.*stopping.*restart-manager' unless 'dockerd' appears in the sample itself.
 - NEVER use \d+, [0-9]+, [0-9a-fA-F]+, [0-9.]+, or similar patterns in place of token words.
 - NEVER convert these token names into patterns: NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
     HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE. They are plain words — skip them when picking keywords.
