@@ -59,13 +59,13 @@ def _load_min_message_length_setting():
         )
 
 
-def _is_meaningful_message(message):
+def _is_meaningful_message(tokenized_message):
     """Check if a message has enough real content to be worth classifying.
 
     Minimum length is evaluated on the preprocessed sample so dynamic numbers/symbols
     do not inflate a low-signal log into passing the threshold.
     """
-    preprocessed = preprocess_sample_for_ai(message).strip()
+    preprocessed = (tokenized_message or "").strip()
     if len(preprocessed) < MIN_MESSAGE_LENGTH:
         return False
 
@@ -179,11 +179,10 @@ def _pattern_regex_matches_message(pattern, message):
 
 
 def _classify_until_regex_matches(
-    pattern_id, normalized_pattern, message, host=None, program=None
+    pattern_id, normalized_pattern, tokenized_message, host=None, program=None
 ):
     """Classify with AI and require regex to match the originating log before accepting."""
-    preprocessed_message = preprocess_sample_for_ai(message)
-    debug_preprocessed_message = _truncate_for_log(preprocessed_message)
+    debug_preprocessed_message = _truncate_for_log(tokenized_message)
     log_error(
         logger,
         f"[DEBUG] Pattern {pattern_id} tokenized message sent to AI: {debug_preprocessed_message!r}",
@@ -194,11 +193,11 @@ def _classify_until_regex_matches(
         retry_feedback = None
         if previous_regex:
             retry_feedback = (
-                "Previous attempt failed. The generated regex did not match the original log. "
+                "Previous attempt failed. The generated regex did not match the tokenized log. "
                 "Create a NEW regex (not a minor rewording) focused on stable keywords and delimiters, "
                 "with bounded wildcards for variable segments. "
                 f"Failed regex: {previous_regex!r}. "
-                f"Original log: {message!r}"
+                f"Tokenized log: {tokenized_message!r}"
             )
             log_error(
                 logger,
@@ -209,7 +208,7 @@ def _classify_until_regex_matches(
             {
                 "id": pattern_id,
                 "pattern_text": normalized_pattern,
-                "sample_message": preprocessed_message,
+                "sample_message": tokenized_message,
                 "sample_is_preprocessed": True,
                 "host": host,
                 "program": program,
@@ -224,14 +223,14 @@ def _classify_until_regex_matches(
             )
             continue
 
-        if _pattern_regex_matches_message(ai_pattern, message):
+        if _pattern_regex_matches_message(ai_pattern, tokenized_message):
             _invalidate_regex_cache()
             # Refresh immediately so the very next log uses the new regex.
             _refresh_regex_cache()
             return ai_pattern
 
         debug_regex = _truncate_for_log((ai_pattern.get("match_regex") or "").strip())
-        debug_message = _truncate_for_log(message)
+        debug_message = _truncate_for_log(tokenized_message)
         previous_regex = ai_pattern.get("match_regex") or ""
         log_error(
             logger,
@@ -254,10 +253,11 @@ def process_log(log_entry):
     )
 
     message = log_entry.get("message", "")
-    normalized_pattern = extract_pattern(message)
+    tokenized_message = preprocess_sample_for_ai(message)
+    normalized_pattern = extract_pattern(tokenized_message)
 
     # Step 1: Try matching against AI-provided regexes from known patterns
-    regex_match_id, regex_classification = match_by_regex(message)
+    regex_match_id, regex_classification = match_by_regex(tokenized_message)
 
     if regex_match_id:
         # Matched an existing pattern via regex
@@ -270,7 +270,7 @@ def process_log(log_entry):
             return True
         pattern = get_pattern_by_id(pattern_id)
     else:
-        if not _is_meaningful_message(message):
+        if not _is_meaningful_message(tokenized_message):
             # Not enough real content — silently drop
             delete_logs([log_entry["id"]])
             return True
@@ -290,14 +290,14 @@ def process_log(log_entry):
             pattern_id = insert_pattern(
                 pattern_hash=pattern_hash,
                 pattern_text=normalized_pattern,
-                sample_message=message,
+                sample_message=tokenized_message,
                 host=log_entry.get("host"),
                 program=log_entry.get("program"),
                 timestamp=log_entry["received_at"],
             )
             pattern = get_pattern_by_id(pattern_id)
 
-        if not _pattern_regex_matches_message(pattern, message):
+        if not _pattern_regex_matches_message(pattern, tokenized_message):
             log_info(
                 logger,
                 f"[INFO] No regex match for current log; requesting AI classification for pattern {pattern_id}",
@@ -306,7 +306,7 @@ def process_log(log_entry):
             ai_pattern = _classify_until_regex_matches(
                 pattern_id,
                 normalized_pattern,
-                message,
+                tokenized_message,
                 host=log_entry.get("host"),
                 program=log_entry.get("program"),
             )
