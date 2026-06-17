@@ -3,8 +3,22 @@ import logging
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_pending_patterns
+from src.core.db import get_pending_patterns, get_setting
 from src.utils.locallogging import log_error, log_info
+
+
+AI_BATCH_SIZE_DEFAULT = 20
+
+
+def _get_int_setting(key, default_value, min_value=1):
+    raw_value = get_setting(key, str(default_value))
+    try:
+        parsed = int(raw_value)
+        if parsed < min_value:
+            raise ValueError(f"{key} must be >= {min_value}")
+        return parsed
+    except (TypeError, ValueError):
+        return default_value
 
 
 def setup_discovery_routes(app):
@@ -28,7 +42,8 @@ def setup_discovery_routes(app):
         logger = logging.getLogger(__name__)
         try:
             from src.core.ai_discovery import classify_patterns
-            pending = get_pending_patterns(limit=20)
+            batch_size = _get_int_setting("ai_batch_size", AI_BATCH_SIZE_DEFAULT)
+            pending = get_pending_patterns(limit=batch_size)
             if not pending:
                 response.content_type = "application/json"
                 return json.dumps({"status": "ok", "message": "No pending patterns to classify"})

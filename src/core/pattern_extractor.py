@@ -35,12 +35,26 @@ COLLAPSE_PATTERNS = [
 ]
 
 
+def _canonicalize_escapes(text):
+    """Normalize common escaped encodings so semantically-identical logs hash the same."""
+    if not text:
+        return ""
+
+    # Convert JSON-escaped quotes into literal quotes.
+    text = text.replace(r'\"', '"').replace(r"\\'", "'")
+
+    # Treat escaped line breaks/tabs as whitespace separators.
+    text = re.sub(r"(?:\\r\\n|\\n|\\r|\\t)+", " ", text)
+
+    return text
+
+
 def extract_pattern(message):
     """Normalize a log message into a pattern by replacing dynamic values with placeholders."""
     if not message:
         return ""
 
-    pattern = message.strip()
+    pattern = _canonicalize_escapes(message.strip())
 
     for regex, replacement in NORMALIZERS:
         pattern = regex.sub(replacement, pattern)

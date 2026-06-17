@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import re
 import sys
@@ -12,7 +11,6 @@ from src.core.db import (
     upsert_host,
     increment_host_alert_count,
     update_alert_discord_sent,
-    get_pattern_by_hash,
     get_pattern_by_id,
     get_patterns_with_regex,
     insert_pattern,
@@ -23,6 +21,7 @@ from src.core.db import (
     update_pattern_classification,
 )
 from src.core.ai_discovery import classify_single_pattern, test_ai_connection
+from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.core.discord import send_alert_discord
 from src.utils.locallogging import log_error, log_info
 
@@ -133,10 +132,6 @@ def match_by_regex(message):
     return None, None
 
 
-def _hash_message(message):
-    return hashlib.sha256(message.encode("utf-8", errors="replace")).hexdigest()[:16]
-
-
 def get_effective_classification(pattern):
     return pattern.get("user_override") or pattern.get("classification") or "pending"
 
@@ -152,6 +147,7 @@ def process_log(log_entry):
     )
 
     message = log_entry.get("message", "")
+    normalized_pattern = extract_pattern(message)
 
     # Step 1: Try matching against AI-provided regexes from known patterns
     regex_match_id, regex_classification = match_by_regex(message)
@@ -167,54 +163,41 @@ def process_log(log_entry):
             return True
         pattern = get_pattern_by_id(pattern_id)
     else:
-        # Step 2: Check if this exact message hash already exists
-        msg_hash = _hash_message(message)
-        existing = get_pattern_by_hash(msg_hash)
-
-        if existing:
-            pattern_id = existing["id"]
-            increment_pattern_hit(pattern_id, log_entry["received_at"])
-            effective_existing = get_effective_classification(existing)
-            if effective_existing == "noise":
-                increment_pattern_stat(pattern_id, log_entry["received_at"])
-                increment_noise_stat(log_entry["received_at"])
-                delete_logs([log_entry["id"]])
-                return True
-            pattern = existing
-        elif not _is_meaningful_message(message):
+        if not _is_meaningful_message(message):
             # Not enough real content — silently drop
             delete_logs([log_entry["id"]])
             return True
+
+        # Step 2: New pattern — insert then BLOCK and send to AI
+        pattern_hash = hash_pattern(normalized_pattern)
+        pattern_id = insert_pattern(
+            pattern_hash=pattern_hash,
+            pattern_text=normalized_pattern,
+            sample_message=message,
+            host=log_entry.get("host"),
+            program=log_entry.get("program"),
+            timestamp=log_entry["received_at"],
+        )
+        log_info(logger, f"[INFO] New log type — sending to AI for classification: {normalized_pattern[:80]}")
+
+        ai_pattern = classify_single_pattern({
+            "id": pattern_id,
+            "pattern_text": normalized_pattern,
+            "sample_message": message,
+            "host": log_entry.get("host"),
+            "program": log_entry.get("program"),
+        })
+
+        if ai_pattern:
+            pattern = ai_pattern
+            _invalidate_regex_cache()
+            log_info(logger, f"[INFO] AI classified as '{pattern.get('classification')}' title='{pattern.get('title', '')}': {normalized_pattern[:80]}")
         else:
-            # Step 3: New pattern — insert then BLOCK and send to AI
-            pattern_id = insert_pattern(
-                pattern_hash=msg_hash,
-                pattern_text=message,
-                sample_message=message,
-                host=log_entry.get("host"),
-                program=log_entry.get("program"),
-                timestamp=log_entry["received_at"],
-            )
-            log_info(logger, f"[INFO] New log type — sending to AI for classification: {message[:80]}")
-
-            ai_pattern = classify_single_pattern({
-                "id": pattern_id,
-                "pattern_text": message,
-                "sample_message": message,
-                "host": log_entry.get("host"),
-                "program": log_entry.get("program"),
-            })
-
-            if ai_pattern:
-                pattern = ai_pattern
-                _invalidate_regex_cache()
-                log_info(logger, f"[INFO] AI classified as '{pattern.get('classification')}' title='{pattern.get('title', '')}': {message[:80]}")
-            else:
-                # AI failed — mark this log processed but STOP processing more logs
-                log_error(logger, f"[ERROR] AI classification failed — stopping processing until next cycle")
-                mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
-                increment_pattern_stat(pattern_id, log_entry["received_at"])
-                return False
+            # AI failed — mark this log processed but STOP processing more logs
+            log_error(logger, f"[ERROR] AI classification failed — stopping processing until next cycle")
+            mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
+            increment_pattern_stat(pattern_id, log_entry["received_at"])
+            return False
 
     # Record hourly stats for this pattern
     increment_pattern_stat(pattern_id, log_entry["received_at"])
