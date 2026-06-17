@@ -621,12 +621,10 @@ def move_low_patterns_to_noise():
             return 0
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                """UPDATE patterns
+            cursor.execute("""UPDATE patterns
                    SET user_override = 'noise'
                    WHERE COALESCE(user_override, classification) = 'low'
-                     AND (user_override IS NULL OR user_override != 'noise')"""
-            )
+                     AND (user_override IS NULL OR user_override != 'noise')""")
             conn.commit()
             return cursor.rowcount
         finally:
@@ -796,11 +794,9 @@ def get_patterns_with_regex():
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute(
-            """SELECT id, match_regex, classification, user_override
+        cursor.execute("""SELECT id, match_regex, classification, user_override
                FROM patterns
-               WHERE match_regex IS NOT NULL AND classification != 'pending'"""
-        )
+               WHERE match_regex IS NOT NULL AND classification != 'pending'""")
         rows = cursor.fetchall()
         return [
             {

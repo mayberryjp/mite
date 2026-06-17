@@ -250,7 +250,7 @@ def _classify_until_regex_matches(
 
 
 def process_log(log_entry):
-    """Process a single log entry. Returns False if processing should stop (AI failure on new pattern)."""
+    """Process a single log entry. Returns True to continue processing."""
 
     # Track the host
     upsert_host(
@@ -325,12 +325,13 @@ def process_log(log_entry):
                     f"[INFO] AI classification accepted for pattern {pattern_id}: '{pattern.get('classification')}' title='{pattern.get('title', '')}'",
                 )
             else:
-                # Do not process this or subsequent logs in this cycle while AI resolution is incomplete.
+                # After max retries, drop this log and continue with remaining logs.
                 log_error(
                     logger,
-                    f"[ERROR] AI could not produce a matching regex for pattern {pattern_id}; stopping processing until next cycle",
+                    f"[ERROR] AI could not produce a matching regex for pattern {pattern_id}; dropping log {log_entry['id']} after max retries",
                 )
-                return False
+                delete_logs([log_entry["id"]])
+                return True
 
     # Record hourly stats for this pattern
     increment_pattern_stat(pattern_id, log_entry["received_at"])
