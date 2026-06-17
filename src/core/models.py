@@ -218,6 +218,8 @@ Dynamic values to generalize: timestamps, dates, hostnames, source/destination I
 
 When generalizing hostnames, avoid hardcoding site-specific labels or full domain names. Prefer hostname patterns that work across environments, such as [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+.
 
+For version and protocol tokens with dots (e.g., 802.11, HTTP/1.1, TLS1.3), do NOT use [0-9]+ alone. Instead use [0-9]+(?:[.][0-9]+)* or [0-9.]+ to handle dotted numeric sequences.
+
 Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
 
 Output requirements:

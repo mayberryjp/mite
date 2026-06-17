@@ -58,6 +58,7 @@ REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
 - Treat hostnames/FQDNs as dynamic values unless a specific hostname is the event identity.
 - Do NOT hardcode site-specific segments (for example: "mayberry", "corp", "prod", "lab").
 - For host tokens, prefer broad hostname patterns such as:\n  - [A-Za-z0-9._-]+\n  - [A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+
+- For version/protocol tokens with dots (802.11, HTTP/1.1, TLS1.3, etc.), use \d+(?:\.\d+)* or [0-9.]+ instead of \d+ alone.
 - Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
 - Do NOT over-constrain optional suffixes like domain depth, TLD, minor version, or local naming conventions.
 - If sample lines differ only by hostname/site labels, generated regex MUST match all of them.
@@ -65,6 +66,8 @@ REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
 Examples:
 - Bad (too strict): firewall\.farm\.mayberry\.farm
 - Better (portable): firewall\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*
+- Bad (too strict): IEEE \d+: disassociated
+- Better (handles dotted versions): IEEE [0-9.]+: disassociated or IEEE \d+(?:\.\d+)*: disassociated
 """
 
 

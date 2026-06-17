@@ -63,9 +63,9 @@ def init_database():
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
-        # Seed default prompt if not already set
+        # Seed/overwrite default prompt on every startup to ensure latest version is active
         cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE),
         )
         # Seed default minimum message length if not already set
