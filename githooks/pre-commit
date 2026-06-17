@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Git executes this file name (without extension) as the pre-commit hook.
+# Delegate to the PowerShell implementation for Windows workflows.
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$(dirname "$0")/pre-commit.ps1"

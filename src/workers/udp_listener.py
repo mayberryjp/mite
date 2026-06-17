@@ -148,8 +148,6 @@ def _flush_batch(logger, log_batch, host_batch, conn):
 
 
 if __name__ == "__main__":
-    import time
-
     logger = logging.getLogger(__name__)
     log_info(logger, "[INFO] UDP listener process starting, waiting 5 seconds...")
     time.sleep(5)

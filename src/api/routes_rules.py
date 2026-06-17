@@ -2,7 +2,7 @@ import json
 import logging
 import re
 
-from bottle import Bottle, request, response
+from bottle import request, response
 
 from src.core.db import (
     delete_all_patterns,

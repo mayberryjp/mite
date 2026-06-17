@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 
 from bottle import Bottle, response
 
@@ -10,7 +9,7 @@ from src.api.routes_hosts import setup_hosts_routes
 from src.api.routes_logs import setup_logs_routes
 from src.api.routes_rules import setup_patterns_routes
 from src.api.routes_settings import setup_settings_routes
-from src.core.config import MITE_DB_PATH, VERSION
+from src.core.config import VERSION
 from src.core.db import get_stats
 from src.core.discord import send_discord_message
 from src.utils.locallogging import log_error, log_info

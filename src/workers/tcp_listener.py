@@ -157,8 +157,6 @@ def run_tcp_listener():
 
 
 if __name__ == "__main__":
-    import time
-
     logger = logging.getLogger(__name__)
     log_info(logger, "[INFO] TCP listener process starting, waiting 5 seconds...")
     time.sleep(5)

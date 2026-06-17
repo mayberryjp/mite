@@ -1,7 +1,7 @@
 import json
 import logging
 
-from bottle import Bottle, request, response
+from bottle import request, response
 
 from src.core.db import get_pending_patterns, get_setting
 from src.utils.locallogging import log_error, log_info

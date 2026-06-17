@@ -1,7 +1,7 @@
 import json
 import logging
 
-from bottle import Bottle, response
+from bottle import response
 
 from src.core.db import get_all_hosts
 from src.utils.locallogging import log_error, log_info

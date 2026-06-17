@@ -7,7 +7,6 @@ import requests
 from src.core.config import AI_API_BASE_URL, AI_API_KEY, AI_MODEL
 from src.core.db import (
     get_ai_api_call_count_24h,
-    get_pending_patterns,
     get_setting,
     record_ai_api_call,
     set_setting,
@@ -244,7 +243,7 @@ def classify_patterns(patterns):
         log_error(logger, f"[ERROR] Cannot connect to AI API at {AI_API_BASE_URL}: {e}")
         return {"status": "error", "message": f"Connection failed: {e}"}
     except requests.Timeout:
-        log_error(logger, f"[ERROR] AI API request timed out after 120 seconds")
+        log_error(logger, "[ERROR] AI API request timed out after 120 seconds")
         return {"status": "error", "message": "AI API request timed out"}
     except Exception as e:
         log_error(

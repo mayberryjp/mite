@@ -19,7 +19,6 @@ from src.core.db import (
     insert_pattern,
     mark_logs_processed,
     update_alert_discord_sent,
-    update_pattern_classification,
     upsert_host,
 )
 from src.core.discord import send_alert_discord
@@ -79,25 +78,29 @@ def _load_runtime_settings():
     """Load processor runtime tuning settings from DB with safe fallbacks."""
     global PROCESS_INTERVAL, PROCESS_FETCH_LIMIT, REGEX_CACHE_TTL
 
-    runtime_keys = (
-        ("processor_interval_seconds", PROCESS_INTERVAL_DEFAULT, "PROCESS_INTERVAL"),
-        ("processor_fetch_limit", PROCESS_FETCH_LIMIT_DEFAULT, "PROCESS_FETCH_LIMIT"),
-        ("regex_cache_ttl_seconds", REGEX_CACHE_TTL_DEFAULT, "REGEX_CACHE_TTL"),
-    )
-
-    for key, default_value, attr_name in runtime_keys:
+    def _read_runtime_int(key, default_value):
         raw_value = get_setting(key, str(default_value))
         try:
             parsed = int(raw_value)
             if parsed < 1:
                 raise ValueError(f"{key} must be >= 1")
-            globals()[attr_name] = parsed
+            return parsed
         except (TypeError, ValueError):
-            globals()[attr_name] = default_value
             log_error(
                 logger,
                 f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
             )
+            return default_value
+
+    PROCESS_INTERVAL = _read_runtime_int(
+        "processor_interval_seconds", PROCESS_INTERVAL_DEFAULT
+    )
+    PROCESS_FETCH_LIMIT = _read_runtime_int(
+        "processor_fetch_limit", PROCESS_FETCH_LIMIT_DEFAULT
+    )
+    REGEX_CACHE_TTL = _read_runtime_int(
+        "regex_cache_ttl_seconds", REGEX_CACHE_TTL_DEFAULT
+    )
 
 
 def _refresh_regex_cache():
@@ -211,7 +214,7 @@ def process_log(log_entry):
             # AI failed — mark this log processed but STOP processing more logs
             log_error(
                 logger,
-                f"[ERROR] AI classification failed — stopping processing until next cycle",
+                "[ERROR] AI classification failed — stopping processing until next cycle",
             )
             mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
             increment_pattern_stat(pattern_id, log_entry["received_at"])
