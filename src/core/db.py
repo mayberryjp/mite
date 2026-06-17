@@ -75,11 +75,15 @@ def init_database():
             ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
         )
         # Backfill older installs that still have an empty token list.
-        cursor.execute("SELECT value FROM settings WHERE key = ?", ("ai_custom_tokens",))
+        cursor.execute(
+            "SELECT value FROM settings WHERE key = ?", ("ai_custom_tokens",)
+        )
         current_custom = cursor.fetchone()
-        if not current_custom or not (current_custom[0] or "").strip() or (
-            current_custom[0] or ""
-        ).strip() == "[]":
+        if (
+            not current_custom
+            or not (current_custom[0] or "").strip()
+            or (current_custom[0] or "").strip() == "[]"
+        ):
             cursor.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),

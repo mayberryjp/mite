@@ -10,10 +10,7 @@ from src.core.db import (
     get_setting,
     set_setting,
 )
-from src.core.models import (
-    DEFAULT_AI_CUSTOM_TOKENS,
-    DEFAULT_AI_PROMPT_TEMPLATE,
-)
+from src.core.models import DEFAULT_AI_CUSTOM_TOKENS, DEFAULT_AI_PROMPT_TEMPLATE
 from src.utils.locallogging import log_error, log_info
 
 EDITABLE_SETTINGS = {
