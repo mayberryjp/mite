@@ -4,7 +4,7 @@ import re
 
 from bottle import Bottle, request, response
 
-from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern, delete_all_patterns, move_low_patterns_to_noise
+from src.core.db import get_all_patterns, get_pattern_by_id, update_pattern_user_override, update_pattern_regex, update_pattern_title, update_pattern_ai_explanation, get_pattern_stats, get_all_pattern_stats, get_logs_by_pattern, delete_pattern, delete_all_patterns, delete_old_patterns, move_low_patterns_to_noise
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
@@ -159,6 +159,22 @@ def setup_patterns_routes(app):
             log_error(logger, f"[ERROR] Failed to reclassify low patterns to noise: {e}")
             response.status = 500
             return {"error": str(e)}
+
+    @app.route("/api/patterns/actions/delete-old/<days:int>", method=["DELETE"])
+    def api_delete_old_patterns(days):
+        logger = logging.getLogger(__name__)
+        try:
+            if days < 1:
+                response.status = 400
+                return json.dumps({"error": "days must be >= 1"})
+            deleted = delete_old_patterns(days)
+            log_info(logger, f"[INFO] Deleted {deleted} patterns older than {days} days")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "deleted": deleted, "days": days})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to delete old patterns: {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
 
     @app.route("/api/patterns/stats", method=["GET"])
     def api_get_all_pattern_stats():

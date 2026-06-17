@@ -2,6 +2,7 @@ import logging
 import re
 import sys
 import time
+import uuid
 
 from src.core.db import (
     get_unprocessed_logs,
@@ -21,7 +22,7 @@ from src.core.db import (
     update_pattern_classification,
 )
 from src.core.ai_discovery import classify_single_pattern, test_ai_connection
-from src.core.pattern_extractor import extract_pattern, hash_pattern
+from src.core.pattern_extractor import extract_pattern
 from src.core.discord import send_alert_discord
 from src.utils.locallogging import log_error, log_info
 
@@ -169,7 +170,7 @@ def process_log(log_entry):
             return True
 
         # Step 2: New pattern — insert then BLOCK and send to AI
-        pattern_hash = hash_pattern(normalized_pattern)
+        pattern_hash = str(uuid.uuid4())  # Random GUID for uniqueness
         pattern_id = insert_pattern(
             pattern_hash=pattern_hash,
             pattern_text=normalized_pattern,
