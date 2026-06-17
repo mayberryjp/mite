@@ -157,10 +157,6 @@ def preprocess_sample_for_ai(sample_message):
         try:
             custom_tokens = json.loads(raw_custom)
             if isinstance(custom_tokens, list) and custom_tokens:
-                log_info(
-                    logger,
-                    f"[INFO] Applying {len(custom_tokens)} custom token(s) to sample",
-                )
                 for entry in custom_tokens:
                     if (
                         isinstance(entry, list)
