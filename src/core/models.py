@@ -232,13 +232,16 @@ For CSV fields with empty values: represent as ,, (two adjacent commas), NOT as 
 
 For JSON string values within logs (e.g., {"mac":"value","vap":"value"}), use [^"]+ to match the content between quotes, NOT overly broad patterns (which will include the closing quote and break the JSON structure).
 
-Token placeholders may appear in samples (for example: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE).
+The sample has already been preprocessed. Dynamic values have been replaced with token placeholders: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE.
 
-Do NOT convert token words directly into regex fragments (for example NUMBER -> [0-9], IP_ADDRESS -> [0-9]+(?:[.][0-9]+){3}).
+When a token placeholder appears in the sample, copy it VERBATIM into the regex as a literal string. Do NOT replace it with a character class or regex pattern.
 
-Treat token placeholders as abstract markers for variable fields and build regex around stable keywords and delimiters with bounded wildcards between them.
+Correct: sample contains 'uid=NUMBER' -> regex contains 'uid=NUMBER' (not 'uid=[0-9]+')
+Correct: sample contains 'from IP_ADDRESS port NUMBER' -> regex contains 'from IP_ADDRESS port NUMBER'
+Wrong: sample contains 'uid=NUMBER' -> regex contains 'uid=[0-9]+' (DO NOT DO THIS)
+Wrong: sample contains 'IP_ADDRESS' -> regex uses numeric patterns instead of the literal token (DO NOT DO THIS)
 
-Prefer keyword-anchored regex over token-by-token reconstruction.
+Build regex around stable keywords and delimiters, with token placeholders exactly as they appear for variable positions.
 
 NEVER use overly broad patterns for bounded/structured values; always use specific character classes.
 

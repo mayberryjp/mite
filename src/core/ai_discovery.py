@@ -62,10 +62,13 @@ REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
 - For hex values (example: 0xABCD), use [0-9a-fA-F]+ instead of [^\s]+ or \S+ (which are too greedy and will consume commas and other delimiters).
 - For CSV fields: if a field can be empty, represent empty as ,, not ,\,,. Use [^,]* for optional values.
 - For JSON string values (e.g., inside {"key":"value"}), use [^"]+ to match the value content, NOT \S+ (which includes the closing quote and breaks the JSON structure).
-- Token placeholders may appear in samples (for example: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE).
-- Do NOT convert token words directly into regex fragments (for example NUMBER -> [0-9], IP_ADDRESS -> \d+\.\d+\.\d+\.\d+).
-- Treat token placeholders as abstract markers of variable fields and build regex around stable keywords/delimiters with bounded wildcards between them.
-- Prefer keyword-anchored patterns over token-by-token reconstruction.
+- The sample has already been preprocessed. Dynamic values have been replaced with token placeholders: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE.
+- When a token placeholder appears in the sample, copy it VERBATIM into the regex as a literal string. Do NOT replace it with a character class or regex pattern.
+- Correct example: sample contains 'uid=NUMBER' -> regex contains 'uid=NUMBER' (not 'uid=[0-9]+')
+- Correct example: sample contains 'from IP_ADDRESS port NUMBER' -> regex contains 'from IP_ADDRESS port NUMBER'
+- Wrong example: sample contains 'uid=NUMBER' -> regex contains 'uid=[0-9]+' (DO NOT DO THIS)
+- Wrong example: sample contains 'IP_ADDRESS' -> regex contains '\\d+\\.\\d+\\.\\d+\\.\\d+' (DO NOT DO THIS)
+- Build regex around stable keywords and delimiters, with token placeholders exactly as they appear for variable positions.
 - Build regex around stable keywords and delimiters first; use targeted wildcards between those keywords.
 - Do NOT try to model every token position in long logs. Prefer keyword-anchored matching with bounded character classes.
 - Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
