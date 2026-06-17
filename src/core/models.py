@@ -216,6 +216,54 @@ De-escalate severity when:
 
 3. Create a Python-compatible regular expression that matches this type of log message.
 
+STRATEGY: Write a BROAD, KEYWORD-ANCHORED regex. Do NOT try to match the full log line.
+
+STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify this event type.
+    Good: daemon name, action verb, event name, protocol name, stable field label.
+        Skip: anything dynamic — token placeholders (NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
+                HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE), hostnames, version numbers.
+    CRITICAL: Select keywords in the order they appear in the sample message. Left-to-right order matters. NEVER reorder.
+    CRITICAL: Every keyword must be copied from literal text that already exists in the sample. Do NOT invent, infer, summarize, or normalize new words.
+
+STEP 2 — Join those keywords with .* between them, preserving the left-to-right order from the sample.
+
+STEP 3 — Escape regex metacharacters in the keywords (brackets, dots, parens).
+
+Examples:
+    sample: 'NUMBER:NUMBER+NUMBER:NUMBER FIREWALL_HOST dhcp6c NUMBER - - Sending Solicit'
+    keywords: dhcp6c, Sending Solicit
+    regex: 'dhcp6c.*Sending Solicit'
+
+        sample: 'hostapd NUMBER: wifi0ap1: STA MAC_ADDRESS IEEE VERSION: disassociated'
+    keywords: hostapd, STA, disassociated
+    regex: 'hostapd.*STA.*disassociated'
+
+    sample: 'pam_unix(cron:session): session opened for user root(uid=NUMBER)'
+    keywords: pam_unix, cron:session, session opened
+    regex: 'pam_unix.*cron:session.*session opened'
+
+Rules:
+- NEVER reconstruct the full log line as a regex.
+- NEVER reorder keywords. If the sample reads 'Starting motd-news.service', write 'Starting.*motd-news\\.service', not 'motd-news\\.service.*Starting'.
+- NEVER add words to the regex that do not appear in the sample message. If the sample contains 'msg="stopping restart-manager"', write 'stopping.*restart-manager' and not 'dockerd.*stopping.*restart-manager' unless 'dockerd' appears in the sample itself.
+- NEVER use character classes like [0-9]+, [0-9a-fA-F]+, [0-9.]+ in place of token placeholder words.
+- NEVER convert these token names into patterns: NUMBER, VERSION, IP_ADDRESS, MAC_ADDRESS,
+    HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE. Skip them when choosing keywords.
+- Do NOT hardcode site-specific hostnames or environment labels.
+- Use .* (not .+) between keywords so empty spans are allowed.
+
+Output requirements:
+
+Respond ONLY with a JSON array. Do not include Markdown, code fences, comments, or explanatory text.
+
+Each element must have exactly these fields:
+
+- "id": the pattern ID as an integer from the input
+- "classification": exactly one of "high", "medium", "low"
+- "description": 2-4 sentences explaining what this log pattern means, what produces it, and why it matters or does not matter. Write as if explaining to a fellow engineer.
+- "match_regex": a Python regex string that matches this type of log message
+- "title": a short human-readable title (max 40 chars) describing the type of log event. Must not contain timestamps, dates, IPs, hostnames, MACs, or one-off values.
+
 Patterns to analyze:
 
 {patterns}"""

@@ -283,11 +283,7 @@ def classify_patterns(patterns):
     patterns_text = "\n---\n".join(pattern_lines)
 
     prompt_template = get_setting("ai_prompt_template") or DEFAULT_AI_PROMPT_TEMPLATE
-    prompt = (
-        _render_prompt_template(prompt_template, patterns_text)
-        + STRICT_JSON_REQUIREMENTS
-        + REGEX_GENERALIZATION_REQUIREMENTS
-    )
+    prompt = _render_prompt_template(prompt_template, patterns_text)
 
     try:
         headers = {
