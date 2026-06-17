@@ -146,6 +146,23 @@ def preprocess_sample_for_ai(sample_message):
     try:
         text = sample_message or ""
 
+        # Apply user-defined custom keyword tokens first (exact string replacements).
+        raw_custom = get_setting("ai_custom_tokens") or "[]"
+        try:
+            custom_tokens = json.loads(raw_custom)
+            if isinstance(custom_tokens, list):
+                for entry in custom_tokens:
+                    if (
+                        isinstance(entry, list)
+                        and len(entry) == 2
+                        and isinstance(entry[0], str)
+                        and isinstance(entry[1], str)
+                        and entry[0]
+                    ):
+                        text = text.replace(entry[0], entry[1])
+        except (json.JSONDecodeError, TypeError):
+            log_error(logger, "[ERROR] ai_custom_tokens is not valid JSON; skipping.")
+
         # Replace well-known dynamic patterns with typed placeholders.
         typed_replacements = [
             (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "IP_ADDRESS"),

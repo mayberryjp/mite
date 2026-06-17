@@ -13,6 +13,7 @@ from src.core.models import (
     CONST_CREATE_PATTERN_STATS_SQL,
     CONST_CREATE_PATTERNS_SQL,
     CONST_CREATE_SETTINGS_SQL,
+    DEFAULT_AI_CUSTOM_TOKENS,
     DEFAULT_AI_PROMPT_TEMPLATE,
     DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
 )
@@ -73,6 +74,11 @@ def init_database():
         cursor.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             ("ai_sample_preprocessing_regex", DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX),
+        )
+        # Seed custom keyword tokens if not already set (user may have customized these)
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
         )
         # Seed default minimum message length if not already set
         cursor.execute(

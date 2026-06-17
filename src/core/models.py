@@ -123,6 +123,11 @@ CONST_CREATE_SETTINGS_SQL = """
 # Example: "192.168.1.1 firewall[1234]: 0xDEADBEEF" -> "<X> firewall[<X>]: <X>"
 DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+|0x[0-9a-fA-F]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}|\b\d+\b"
 
+# User-defined keyword tokens: JSON array of ["literal_string", "TOKEN_NAME"] pairs.
+# Applied as exact-string replacements before all other preprocessing.
+# Example: [["firewall.office.mayberry.farm", "FIREWALL_HOST"], ["192.168.1.0/24", "MGMT_NET"]]
+DEFAULT_AI_CUSTOM_TOKENS = "[]"
+
 DEFAULT_AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls, routers, switches, wireless access points, VPNs, Docker hosts, databases, monitoring systems, and other infrastructure devices.
 
 Please help me understand the following logs and decide whether they are important for alerting.
@@ -211,39 +216,35 @@ De-escalate severity when:
 
 3. Create a Python-compatible regular expression that robustly matches this type of log message.
 
-The regex must:
+TOKEN PLACEHOLDERS — HIGHEST PRIORITY RULE:
+The sample has already been preprocessed. All dynamic values have been replaced with named token placeholders:
+  IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE
 
+When a token placeholder appears in the sample, you MUST copy it VERBATIM into the regex as a literal string.
+Do NOT substitute token names with character classes or regex patterns — ever.
+
+CORRECT (verbatim token in regex):
+  sample: 'uid=NUMBER'                         regex: 'uid=NUMBER'
+  sample: 'from IP_ADDRESS port NUMBER'        regex: 'from IP_ADDRESS port NUMBER'
+  sample: '0x HEX_VALUE bytes'                 regex: '0x HEX_VALUE bytes'
+
+WRONG (converting token to character class — DO NOT DO THIS):
+  sample: 'uid=NUMBER'     ->  regex: 'uid=[0-9]+'       WRONG
+  sample: 'IP_ADDRESS'     ->  regex: numeric pattern    WRONG
+  sample: 'HEX_VALUE'      ->  regex: '[0-9a-fA-F]+'     WRONG
+  sample: 'VERSION'        ->  regex: dotted-number pat  WRONG
+  sample: 'MAC_ADDRESS'    ->  regex: hex-colon pattern  WRONG
+
+ALL OTHER RULES (apply only to literal text that is NOT a token placeholder):
+The regex must:
 - work with Python re.search() and not require matching the full line
 - match the static/structural parts of the log using keywords, field names, program names, daemon names, protocol names, and stable message text
-- use [0-9a-zA-Z_-]+, .+?, [0-9]+, [0-9a-fA-F]+, or similar specific patterns for dynamic values
 - be specific enough to match this type of log, not overly broad
 - be general enough to match future logs of the same pattern
 - avoid embedding one-time values unless they define the event type
+- NEVER use overly broad patterns like \\S+ for structured/bounded literal values
 
-Dynamic values to generalize: timestamps, dates, hostnames, source/destination IPs, MAC addresses, ports, PIDs, sequence numbers, counters, byte counts, hex values, UUIDs, software versions.
-
-When generalizing hostnames, avoid hardcoding site-specific labels or full domain names. Prefer hostname patterns that work across environments, such as [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+.
-
-For ANY numeric token that may contain dots (product versions like 6.8.2, protocol versions like HTTP/1.1, firmware versions, etc.), do NOT use [0-9]+ alone. Instead use [0-9]+(?:[.][0-9]+)* or [0-9.]+. This applies to versions embedded in product names (e.g., U6-Pro-6.8.2) as well as standalone versions.
-
-For hex values (e.g., 0xABCD, MAC addresses), use [0-9a-fA-F]+ instead of non-whitespace patterns which are too greedy.
-
-For CSV fields with empty values: represent as ,, (two adjacent commas), NOT as three commas. Use [^,]* for optional values between delimiters.
-
-For JSON string values within logs (e.g., {"mac":"value","vap":"value"}), use [^"]+ to match the content between quotes, NOT overly broad patterns (which will include the closing quote and break the JSON structure).
-
-The sample has already been preprocessed. Dynamic values have been replaced with token placeholders: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE.
-
-When a token placeholder appears in the sample, copy it VERBATIM into the regex as a literal string. Do NOT replace it with a character class or regex pattern.
-
-Correct: sample contains 'uid=NUMBER' -> regex contains 'uid=NUMBER' (not 'uid=[0-9]+')
-Correct: sample contains 'from IP_ADDRESS port NUMBER' -> regex contains 'from IP_ADDRESS port NUMBER'
-Wrong: sample contains 'uid=NUMBER' -> regex contains 'uid=[0-9]+' (DO NOT DO THIS)
-Wrong: sample contains 'IP_ADDRESS' -> regex uses numeric patterns instead of the literal token (DO NOT DO THIS)
-
-Build regex around stable keywords and delimiters, with token placeholders exactly as they appear for variable positions.
-
-NEVER use overly broad patterns for bounded/structured values; always use specific character classes.
+For hostname literals still present in the sample (not replaced by a token), do NOT hardcode site-specific segments. Prefer: [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+
 
 Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
 

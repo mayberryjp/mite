@@ -11,6 +11,7 @@ from src.core.db import (
     set_setting,
 )
 from src.core.models import (
+    DEFAULT_AI_CUSTOM_TOKENS,
     DEFAULT_AI_PROMPT_TEMPLATE,
     DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
 )
@@ -28,6 +29,12 @@ EDITABLE_SETTINGS = {
         "default": DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
         "type": "string",
         "allow_empty": False,
+    },
+    "ai_custom_tokens": {
+        "description": 'User-defined keyword replacements applied before all other preprocessing. JSON array of ["literal_string", "TOKEN_NAME"] pairs. Example: [["firewall.office.example.com", "FIREWALL_HOST"], ["db.prod.example.com", "DB_HOST"]]',
+        "default": DEFAULT_AI_CUSTOM_TOKENS,
+        "type": "json_list_of_pairs",
+        "allow_empty": True,
     },
     "min_message_length": {
         "description": "Minimum log message length required before the processor treats a message as meaningful.",
@@ -180,6 +187,36 @@ def _normalize_setting_value(key, value):
 
         raise ValueError("value must be a boolean")
 
+    if meta["type"] == "json_list_of_pairs":
+        # Accept either a JSON string or a native Python list
+        if isinstance(value, list):
+            pairs = value
+        elif isinstance(value, str):
+            try:
+                pairs = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError("value must be a valid JSON array") from exc
+        else:
+            raise ValueError("value must be a JSON array or a JSON string")
+
+        if not isinstance(pairs, list):
+            raise ValueError("value must be a JSON array")
+
+        for i, entry in enumerate(pairs):
+            if (
+                not isinstance(entry, list)
+                or len(entry) != 2
+                or not isinstance(entry[0], str)
+                or not isinstance(entry[1], str)
+                or not entry[0]
+                or not entry[1]
+            ):
+                raise ValueError(
+                    f'entry {i} must be a two-element array of non-empty strings: ["match", "TOKEN_NAME"]'
+                )
+
+        return json.dumps(pairs)
+
     raise ValueError("unsupported setting type")
 
 
@@ -202,6 +239,12 @@ def _typed_setting_value(key, raw_value):
 
     if meta["type"] == "bool":
         return str(raw_value).strip().lower() == "true"
+
+    if meta["type"] == "json_list_of_pairs":
+        try:
+            return json.loads(raw_value)
+        except (json.JSONDecodeError, TypeError):
+            return raw_value
 
     return raw_value
 
