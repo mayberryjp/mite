@@ -62,6 +62,8 @@ REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
 - For hex values (example: 0xABCD), use [0-9a-fA-F]+ instead of [^\s]+ or \S+ (which are too greedy and will consume commas and other delimiters).
 - For CSV fields: if a field can be empty, represent empty as ,, not ,\,,. Use [^,]* for optional values.
 - For JSON string values (e.g., inside {"key":"value"}), use [^"]+ to match the value content, NOT \S+ (which includes the closing quote and breaks the JSON structure).
+- Build regex around stable keywords and delimiters first; use targeted wildcards between those keywords.
+- Do NOT try to model every token position in long logs. Prefer keyword-anchored matching with bounded character classes.
 - Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
 - Do NOT over-constrain optional suffixes like domain depth, TLD, minor version, or local naming conventions.
 - If sample lines differ only by hostname/site labels, generated regex MUST match all of them.
@@ -112,18 +114,53 @@ def _check_rate_limit():
     return count < _get_ai_daily_rate_limit()
 
 
-def _preprocess_sample_for_ai(sample_message):
+def _render_prompt_template(prompt_template, patterns_text):
+    """Safely render only the {patterns} token without interpreting other braces."""
+    if "{patterns}" not in prompt_template:
+        # Backward-compatible fallback: append pattern payload when token is missing.
+        return f"{prompt_template}\n\nPatterns to analyze:\n\n{patterns_text}"
+    return prompt_template.replace("{patterns}", patterns_text)
+
+
+def preprocess_sample_for_ai(sample_message):
     """
-    Apply preprocessing regex to sample message to mask/strip dynamic values.
-    This helps AI focus on structural patterns instead of specific values.
-    Example: "192.168.1.1 firewall[1234]: 0xDEADBEEF" -> "<X> firewall[<X>]: <X>"
+    Apply semantic preprocessing to sample message so AI focuses on structure.
+    Specific dynamic values are replaced with typed tokens first, then a
+    configurable fallback regex masks remaining noisy values.
+
+    Example:
+    "192.168.1.1 firewall[1234]: 0xDEADBEEF"
+    -> "IP_ADDRESS firewall[NUMBER]: HEX_VALUE"
     """
     preprocessing_regex = get_setting("ai_sample_preprocessing_regex") or (
         r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+|0x[0-9a-fA-F]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}|\b\d+\b"
     )
 
     try:
-        return re.sub(preprocessing_regex, "<X>", sample_message)
+        text = sample_message or ""
+
+        # Replace well-known dynamic patterns with typed placeholders.
+        typed_replacements = [
+            (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "IP_ADDRESS"),
+            (r"\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}\b", "MAC_ADDRESS"),
+            (r"\b0x[0-9a-fA-F]+\b", "HEX_VALUE"),
+            (
+                r"\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b",
+                "TIMESTAMP",
+            ),
+            (r"\b\d{4}-\d{2}-\d{2}\b", "DATE"),
+            (r"\b\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2})?\b", "TIME"),
+            (r"\b[0-9]+(?:\.[0-9]+)+\b", "VERSION"),
+            (r"\b\d+\b", "NUMBER"),
+        ]
+
+        for pattern, replacement in typed_replacements:
+            text = re.sub(pattern, replacement, text)
+
+        # Final pass for any custom/user-defined dynamic patterns.
+        text = re.sub(preprocessing_regex, "DYNAMIC_VALUE", text)
+
+        return text
     except re.error as e:
         log_error(
             logger,
@@ -193,17 +230,27 @@ def classify_patterns(patterns):
     # Build the prompt input
     pattern_lines = []
     for p in patterns:
-        # Preprocess sample message to mask dynamic values (IPs, timestamps, hex, MACs, numbers, etc.)
-        # so AI focuses on structural patterns instead of specific values
-        preprocessed_sample = _preprocess_sample_for_ai(p["sample_message"])
-        pattern_lines.append(
-            f"ID: {p['id']}\nPattern: {p['pattern_text']}\nSample: {preprocessed_sample}\nHost: {p.get('host', 'unknown')}\nProgram: {p.get('program', 'unknown')}\n"
-        )
+        # Preprocess sample message to mask dynamic values so AI focuses on keywords/structure.
+        sample_message = p.get("sample_message", "")
+        if p.get("sample_is_preprocessed"):
+            preprocessed_sample = sample_message
+        else:
+            preprocessed_sample = preprocess_sample_for_ai(sample_message)
+
+        retry_feedback = p.get("retry_feedback")
+        if retry_feedback:
+            pattern_lines.append(
+                f"ID: {p['id']}\nPattern: {p['pattern_text']}\nSample: {preprocessed_sample}\nHost: {p.get('host', 'unknown')}\nProgram: {p.get('program', 'unknown')}\nRetry Feedback: {retry_feedback}\n"
+            )
+        else:
+            pattern_lines.append(
+                f"ID: {p['id']}\nPattern: {p['pattern_text']}\nSample: {preprocessed_sample}\nHost: {p.get('host', 'unknown')}\nProgram: {p.get('program', 'unknown')}\n"
+            )
     patterns_text = "\n---\n".join(pattern_lines)
 
     prompt_template = get_setting("ai_prompt_template") or DEFAULT_AI_PROMPT_TEMPLATE
     prompt = (
-        prompt_template.format(patterns=patterns_text)
+        _render_prompt_template(prompt_template, patterns_text)
         + STRICT_JSON_REQUIREMENTS
         + REGEX_GENERALIZATION_REQUIREMENTS
     )

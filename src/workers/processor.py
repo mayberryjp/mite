@@ -3,7 +3,11 @@ import re
 import sys
 import time
 
-from src.core.ai_discovery import classify_single_pattern, test_ai_connection
+from src.core.ai_discovery import (
+    classify_single_pattern,
+    preprocess_sample_for_ai,
+    test_ai_connection,
+)
 from src.core.db import (
     delete_logs,
     get_pattern_by_hash,
@@ -56,14 +60,17 @@ def _load_min_message_length_setting():
 
 
 def _is_meaningful_message(message):
-    """Check if a message has enough real content to be worth classifying."""
-    # Strip the message
-    msg = message.strip()
-    if len(msg) < MIN_MESSAGE_LENGTH:
+    """Check if a message has enough real content to be worth classifying.
+
+    Minimum length is evaluated on the preprocessed sample so dynamic numbers/symbols
+    do not inflate a low-signal log into passing the threshold.
+    """
+    preprocessed = preprocess_sample_for_ai(message).strip()
+    if len(preprocessed) < MIN_MESSAGE_LENGTH:
         return False
-    # Remove timestamps, IPs, dashes, colons, plus signs, and whitespace
-    # to see if there's any real content left
-    stripped = re.sub(r"[\d:.+\-/T\s]+", " ", msg).strip()
+
+    # Remove placeholder tokens and punctuation to estimate remaining keyword signal.
+    stripped = re.sub(r"<X>|[^A-Za-z\s]", " ", preprocessed).strip()
     # Count actual alphabetic words (not single chars)
     words = [w for w in stripped.split() if len(w) > 1 and any(c.isalpha() for c in w)]
     return len(words) >= 3
@@ -175,14 +182,29 @@ def _classify_until_regex_matches(
     pattern_id, normalized_pattern, message, host=None, program=None
 ):
     """Classify with AI and require regex to match the originating log before accepting."""
+    preprocessed_message = preprocess_sample_for_ai(message)
+    previous_regex = None
+
     for attempt in range(1, MAX_AI_REGEX_ATTEMPTS + 1):
+        retry_feedback = None
+        if previous_regex:
+            retry_feedback = (
+                "Previous attempt failed. The generated regex did not match the original log. "
+                "Create a NEW regex (not a minor rewording) focused on stable keywords and delimiters, "
+                "with bounded wildcards for variable segments. "
+                f"Failed regex: {previous_regex!r}. "
+                f"Original log: {message!r}"
+            )
+
         ai_pattern = classify_single_pattern(
             {
                 "id": pattern_id,
                 "pattern_text": normalized_pattern,
-                "sample_message": message,
+                "sample_message": preprocessed_message,
+                "sample_is_preprocessed": True,
                 "host": host,
                 "program": program,
+                "retry_feedback": retry_feedback,
             }
         )
 
@@ -201,6 +223,7 @@ def _classify_until_regex_matches(
 
         debug_regex = _truncate_for_log((ai_pattern.get("match_regex") or "").strip())
         debug_message = _truncate_for_log(message)
+        previous_regex = ai_pattern.get("match_regex") or ""
         log_error(
             logger,
             f"[ERROR] AI regex did not match source log for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}); retrying",
