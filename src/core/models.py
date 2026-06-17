@@ -216,6 +216,8 @@ The regex must:
 
 Dynamic values to generalize: timestamps, dates, hostnames, source/destination IPs, MAC addresses, ports, PIDs, sequence numbers, counters, byte counts, hex values, UUIDs.
 
+When generalizing hostnames, avoid hardcoding site-specific labels or full domain names. Prefer hostname patterns that work across environments, such as [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+.
+
 Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
 
 Output requirements:

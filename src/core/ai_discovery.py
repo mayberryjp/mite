@@ -51,6 +51,23 @@ Example valid output:
 """
 
 
+REGEX_GENERALIZATION_REQUIREMENTS = r"""
+
+REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
+- Prioritize portability across different environments and site names.
+- Treat hostnames/FQDNs as dynamic values unless a specific hostname is the event identity.
+- Do NOT hardcode site-specific segments (for example: "mayberry", "corp", "prod", "lab").
+- For host tokens, prefer broad hostname patterns such as:\n  - [A-Za-z0-9._-]+\n  - [A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+
+- Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
+- Do NOT over-constrain optional suffixes like domain depth, TLD, minor version, or local naming conventions.
+- If sample lines differ only by hostname/site labels, generated regex MUST match all of them.
+
+Examples:
+- Bad (too strict): firewall\.farm\.mayberry\.farm
+- Better (portable): firewall\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*
+"""
+
+
 def _parse_ai_results(ai_content):
     """Parse AI output into JSON results using strict JSON decoding only."""
     json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
@@ -151,7 +168,11 @@ def classify_patterns(patterns):
     patterns_text = "\n---\n".join(pattern_lines)
 
     prompt_template = get_setting("ai_prompt_template") or DEFAULT_AI_PROMPT_TEMPLATE
-    prompt = prompt_template.format(patterns=patterns_text) + STRICT_JSON_REQUIREMENTS
+    prompt = (
+        prompt_template.format(patterns=patterns_text)
+        + STRICT_JSON_REQUIREMENTS
+        + REGEX_GENERALIZATION_REQUIREMENTS
+    )
 
     try:
         headers = {
