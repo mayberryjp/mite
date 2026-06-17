@@ -232,6 +232,14 @@ For CSV fields with empty values: represent as ,, (two adjacent commas), NOT as 
 
 For JSON string values within logs (e.g., {"mac":"value","vap":"value"}), use [^"]+ to match the content between quotes, NOT overly broad patterns (which will include the closing quote and break the JSON structure).
 
+Token placeholders may appear in samples (for example: IP_ADDRESS, MAC_ADDRESS, HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, NUMBER, DYNAMIC_VALUE).
+
+Do NOT convert token words directly into regex fragments (for example NUMBER -> [0-9], IP_ADDRESS -> [0-9]+(?:[.][0-9]+){3}).
+
+Treat token placeholders as abstract markers for variable fields and build regex around stable keywords and delimiters with bounded wildcards between them.
+
+Prefer keyword-anchored regex over token-by-token reconstruction.
+
 NEVER use overly broad patterns for bounded/structured values; always use specific character classes.
 
 Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
