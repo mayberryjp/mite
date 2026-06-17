@@ -183,6 +183,11 @@ def _classify_until_regex_matches(
 ):
     """Classify with AI and require regex to match the originating log before accepting."""
     preprocessed_message = preprocess_sample_for_ai(message)
+    debug_preprocessed_message = _truncate_for_log(preprocessed_message)
+    log_error(
+        logger,
+        f"[DEBUG] Pattern {pattern_id} tokenized message sent to AI: {debug_preprocessed_message!r}",
+    )
     previous_regex = None
 
     for attempt in range(1, MAX_AI_REGEX_ATTEMPTS + 1):
@@ -194,6 +199,10 @@ def _classify_until_regex_matches(
                 "with bounded wildcards for variable segments. "
                 f"Failed regex: {previous_regex!r}. "
                 f"Original log: {message!r}"
+            )
+            log_error(
+                logger,
+                f"[DEBUG] Pattern {pattern_id} retry feedback sent to AI (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS})",
             )
 
         ai_pattern = classify_single_pattern(
