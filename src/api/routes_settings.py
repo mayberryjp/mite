@@ -10,13 +10,22 @@ from src.core.db import (
     get_setting,
     set_setting,
 )
-from src.core.models import DEFAULT_AI_PROMPT_TEMPLATE
+from src.core.models import (
+    DEFAULT_AI_PROMPT_TEMPLATE,
+    DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
+)
 from src.utils.locallogging import log_error, log_info
 
 EDITABLE_SETTINGS = {
     "ai_prompt_template": {
         "description": "Prompt template sent to the AI for log pattern classification. Use {patterns} as the placeholder for pattern data.",
         "default": DEFAULT_AI_PROMPT_TEMPLATE,
+        "type": "string",
+        "allow_empty": False,
+    },
+    "ai_sample_preprocessing_regex": {
+        "description": "Regex to mask/strip dynamic values (IPs, timestamps, hex, MACs, numbers) from sample logs before sending to AI. Matched portions are replaced with <X>. Helps AI focus on structural patterns.",
+        "default": DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
         "type": "string",
         "allow_empty": False,
     },

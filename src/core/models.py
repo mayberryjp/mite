@@ -117,6 +117,12 @@ CONST_CREATE_SETTINGS_SQL = """
     );
 """
 
+# Regex to mask/strip dynamic values before sending sample logs to AI
+# By default, masks out numbers and special characters (IP-like patterns, timestamps, hex, MACs, versions)
+# so AI focuses on structural patterns. Masked portions will be replaced with <X> placeholder.
+# Example: "192.168.1.1 firewall[1234]: 0xDEADBEEF" -> "<X> firewall[<X>]: <X>"
+DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+|0x[0-9a-fA-F]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}|\b\d+\b"
+
 DEFAULT_AI_PROMPT_TEMPLATE = """I am an infrastructure engineer whose job is to review and classify logs for a network containing servers, firewalls, routers, switches, wireless access points, VPNs, Docker hosts, databases, monitoring systems, and other infrastructure devices.
 
 Please help me understand the following logs and decide whether they are important for alerting.
@@ -214,17 +220,19 @@ The regex must:
 - be general enough to match future logs of the same pattern
 - avoid embedding one-time values unless they define the event type
 
-Dynamic values to generalize: timestamps, dates, hostnames, source/destination IPs, MAC addresses, ports, PIDs, sequence numbers, counters, byte counts, hex values, UUIDs.
+Dynamic values to generalize: timestamps, dates, hostnames, source/destination IPs, MAC addresses, ports, PIDs, sequence numbers, counters, byte counts, hex values, UUIDs, software versions.
 
 When generalizing hostnames, avoid hardcoding site-specific labels or full domain names. Prefer hostname patterns that work across environments, such as [A-Za-z0-9._-]+ or [A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+.
 
-For version and protocol tokens with dots (e.g., 802.11, HTTP/1.1, TLS1.3), do NOT use [0-9]+ alone. Instead use [0-9]+(?:[.][0-9]+)* or [0-9.]+ to handle dotted numeric sequences.
+For ANY numeric token that may contain dots (product versions like 6.8.2, protocol versions like HTTP/1.1, firmware versions, etc.), do NOT use [0-9]+ alone. Instead use [0-9]+(?:[.][0-9]+)* or [0-9.]+. This applies to versions embedded in product names (e.g., U6-Pro-6.8.2) as well as standalone versions.
 
-For hex values (e.g., 0xABCD), use [0-9a-fA-F]+ instead of non-whitespace patterns which are too greedy and will consume commas and delimiters.
+For hex values (e.g., 0xABCD, MAC addresses), use [0-9a-fA-F]+ instead of non-whitespace patterns which are too greedy.
 
 For CSV fields with empty values: represent as ,, (two adjacent commas), NOT as three commas. Use [^,]* for optional values between delimiters.
 
-NEVER use overly broad patterns like [^\\s]+ or non-whitespace for bounded/structured values; always use specific character classes.
+For JSON string values within logs (e.g., {"mac":"value","vap":"value"}), use [^"]+ to match the content between quotes, NOT overly broad patterns (which will include the closing quote and break the JSON structure).
+
+NEVER use overly broad patterns for bounded/structured values; always use specific character classes.
 
 Values that may be kept when they define the event type: daemon/program names, destination ports that define the protocol, protocol names, stable phrases.
 

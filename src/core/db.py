@@ -14,6 +14,7 @@ from src.core.models import (
     CONST_CREATE_PATTERNS_SQL,
     CONST_CREATE_SETTINGS_SQL,
     DEFAULT_AI_PROMPT_TEMPLATE,
+    DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX,
 )
 from src.utils.locallogging import log_error, log_info
 
@@ -67,6 +68,11 @@ def init_database():
         cursor.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE),
+        )
+        # Seed/overwrite sample preprocessing regex to strip dynamic values before AI classification
+        cursor.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_sample_preprocessing_regex", DEFAULT_AI_SAMPLE_PREPROCESSING_REGEX),
         )
         # Seed default minimum message length if not already set
         cursor.execute(

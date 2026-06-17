@@ -58,23 +58,24 @@ REGEX QUALITY REQUIREMENTS (MUST FOLLOW EXACTLY):
 - Treat hostnames/FQDNs as dynamic values unless a specific hostname is the event identity.
 - Do NOT hardcode site-specific segments (for example: "mayberry", "corp", "prod", "lab").
 - For host tokens, prefer broad hostname patterns such as:\n  - [A-Za-z0-9._-]+\n  - [A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+
-- For version/protocol tokens with dots (802.11, HTTP/1.1, TLS1.3, etc.), use [0-9]+(?:[.][0-9]+)* or [0-9.]+ instead of [0-9]+ alone.
+- For ANY numeric sequence that MAY contain dots (versions, protocols, IP segments), use [0-9]+(?:[.][0-9]+)* or [0-9.]+ instead of [0-9]+ alone. This includes: product versions (6.8.2), protocol versions (HTTP/1.1, TLS1.3), firmware versions, dotted-quad IP segments, etc.
 - For hex values (example: 0xABCD), use [0-9a-fA-F]+ instead of [^\s]+ or \S+ (which are too greedy and will consume commas and other delimiters).
 - For CSV fields: if a field can be empty, represent empty as ,, not ,\,,. Use [^,]* for optional values.
+- For JSON string values (e.g., inside {"key":"value"}), use [^"]+ to match the value content, NOT \S+ (which includes the closing quote and breaks the JSON structure).
 - Keep only truly stable service/event keywords literal (for example: daemon path, action phrase, protocol verb).
 - Do NOT over-constrain optional suffixes like domain depth, TLD, minor version, or local naming conventions.
 - If sample lines differ only by hostname/site labels, generated regex MUST match all of them.
-- NEVER use [^\s]+ or \S+ for structured/bounded values; use specific character classes like [0-9a-fA-F]+, [A-Za-z0-9-]+, etc.
+- NEVER use [^\s]+ or \S+ for structured/bounded values; use specific character classes like [0-9a-fA-F]+, [A-Za-z0-9-]+, [^"]+, etc.
 
-Examples:
-- Bad (too strict): firewall\.farm\.mayberry\.farm
+Critical Examples (MUST apply these patterns):
+- Bad (misses dots): U6-Pro-[0-9]+\+[0-9]+  matches "U6-Pro-6" but FAILS on "U6-Pro-6.8.2+15592"
+- Better (handles all versions): U6-Pro-[0-9]+(?:\.[0-9]+)*\+[0-9]+  matches "U6-Pro-6.8.2+15592" correctly
+- Bad (greedy in JSON): {"mac":"\S+","vap":"  will incorrectly match into the next field
+- Better (stops at quote): {"mac":"[^"]+","vap":"  only captures the actual MAC value
+- Bad (hardcoded hostname): firewall\.farm\.mayberry\.farm
 - Better (portable): firewall\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*
-- Bad (too strict): IEEE [0-9]+: disassociated
-- Better (handles dotted versions): IEEE [0-9.]+: disassociated or IEEE [0-9]+(?:[.][0-9]+)*: disassociated
-- Bad (greedy hex): 0x\S+,
-- Better (stops at comma): 0x[0-9a-fA-F]+,
-- Bad (wrong empty field): something,\,,else (expects 3 commas)
-- Better (actual empty field): something,,else (two adjacent commas with nothing between)
+- Bad (misses dotted version): IEEE [0-9]+: disassociated
+- Better (handles all): IEEE [0-9.]+: disassociated or IEEE [0-9]+(?:\.[0-9]+)*: disassociated
 """
 
 
@@ -109,6 +110,26 @@ def _check_rate_limit():
     """Returns True if we can make another AI call, False if rate limited."""
     count = get_ai_api_call_count_24h()
     return count < _get_ai_daily_rate_limit()
+
+
+def _preprocess_sample_for_ai(sample_message):
+    """
+    Apply preprocessing regex to sample message to mask/strip dynamic values.
+    This helps AI focus on structural patterns instead of specific values.
+    Example: "192.168.1.1 firewall[1234]: 0xDEADBEEF" -> "<X> firewall[<X>]: <X>"
+    """
+    preprocessing_regex = get_setting("ai_sample_preprocessing_regex") or (
+        r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2})+|0x[0-9a-fA-F]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}|\b\d+\b"
+    )
+
+    try:
+        return re.sub(preprocessing_regex, "<X>", sample_message)
+    except re.error as e:
+        log_error(
+            logger,
+            f"[ERROR] Invalid preprocessing regex: {e}. Using original sample.",
+        )
+        return sample_message
 
 
 def test_ai_connection():
@@ -172,8 +193,11 @@ def classify_patterns(patterns):
     # Build the prompt input
     pattern_lines = []
     for p in patterns:
+        # Preprocess sample message to mask dynamic values (IPs, timestamps, hex, MACs, numbers, etc.)
+        # so AI focuses on structural patterns instead of specific values
+        preprocessed_sample = _preprocess_sample_for_ai(p["sample_message"])
         pattern_lines.append(
-            f"ID: {p['id']}\nPattern: {p['pattern_text']}\nSample: {p['sample_message']}\nHost: {p.get('host', 'unknown')}\nProgram: {p.get('program', 'unknown')}\n"
+            f"ID: {p['id']}\nPattern: {p['pattern_text']}\nSample: {preprocessed_sample}\nHost: {p.get('host', 'unknown')}\nProgram: {p.get('program', 'unknown')}\n"
         )
     patterns_text = "\n---\n".join(pattern_lines)
 
