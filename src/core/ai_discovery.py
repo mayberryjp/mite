@@ -61,9 +61,10 @@ STEP 1 — Pick 2 to 4 stable keywords from the sample that uniquely identify th
     Good keywords: daemon name, action verb, event name, protocol name, stable field label.
     Bad keywords: anything that looks dynamic — token placeholders (NUMBER, IP_ADDRESS, MAC_ADDRESS,
         HEX_VALUE, TIMESTAMP, DATE, TIME, VERSION, DYNAMIC_VALUE), hostnames, paths with version numbers.
+    CRITICAL: Select keywords in the order they appear in the sample message. Left-to-right order matters.
 
-STEP 2 — Join those keywords with .* between them.
-    The result matches any log containing those keywords in order, regardless of what is between them.
+STEP 2 — Join those keywords with .* between them, preserving the left-to-right order from the sample.
+    The result matches any log containing those keywords in the same order, regardless of what is between them.
 
 STEP 3 — Escape regex metacharacters in the keywords (brackets, dots, parens, etc.).
 
