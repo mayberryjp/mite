@@ -1,10 +1,5 @@
-import logging
 import re
 from datetime import datetime
-
-from src.utils.locallogging import log_debug
-
-logger = logging.getLogger(__name__)
 
 # RFC 3164 style: <PRI>TIMESTAMP HOSTNAME APP-NAME[PID]: MESSAGE
 # Also handles plain text lines with no structure
@@ -96,11 +91,6 @@ def parse_syslog_message(raw_line, source_ip=None):
         pid = pid_str
         if msg:
             message = msg
-    else:
-        log_debug(
-            logger, f"[DEBUG] Could not parse syslog line, storing raw: {raw_line[:80]}"
-        )
-
     return {
         "received_at": datetime.now().isoformat(),
         "source_ip": source_ip,

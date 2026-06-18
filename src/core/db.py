@@ -64,30 +64,15 @@ def init_database():
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
-        # Seed/overwrite default prompt on every startup to ensure latest version is active
+        # Seed defaults only when rows do not already exist.
         cursor.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE),
         )
-        # Seed tokenization rules (regex->token) if not already set.
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
         )
-        # Backfill older installs that still have an empty token list.
-        cursor.execute(
-            "SELECT value FROM settings WHERE key = ?", ("ai_custom_tokens",)
-        )
-        current_custom = cursor.fetchone()
-        if (
-            not current_custom
-            or not (current_custom[0] or "").strip()
-            or (current_custom[0] or "").strip() == "[]"
-        ):
-            cursor.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
-            )
         # Seed default minimum message length if not already set
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

@@ -55,7 +55,7 @@ Every DB operation opens a new `sqlite3.connect()`, does its work, and closes im
 All config is via environment variables with defaults in `src/core/config.py`. Variables are read at module import time as module-level constants (e.g., `MITE_DB_PATH`, `AI_DISCOVERY_ENABLED`). All state is stored in SQLite — no filesystem-based configuration.
 
 ### Logging
-Use the wrappers in `src/utils/locallogging.py` (`log_info`, `log_error`, `log_warn`, `log_debug`) rather than calling `logger.info()` directly. Each module creates its own `logger = logging.getLogger(__name__)`.
+Use the wrappers in `src/utils/locallogging.py` (`log_info`, `log_error`, `log_warn`) rather than calling `logger.info()` directly. Each module creates its own `logger = logging.getLogger(__name__)`.
 
 ### API pattern
 All API routes return JSON via `json.dumps()`. Route handlers follow a try/except pattern logging errors with `log_error`. CORS is handled globally via an `after_request` hook. Routes are organized by resource in `src/api/routes_*.py` files, each exporting a `setup_*_routes(app)` function.
