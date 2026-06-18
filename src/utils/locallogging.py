@@ -1,8 +1,7 @@
-import logging
-import sys
-from datetime import datetime
 import os
+import sys
 import traceback
+from datetime import datetime
 
 
 def log_info(logger, message):
@@ -12,6 +11,7 @@ def log_info(logger, message):
     formatted_message = f"[{timestamp}] {script_name} {message}"
     print(formatted_message)
     logger.info(formatted_message)
+
 
 def log_error(logger, message):
     """

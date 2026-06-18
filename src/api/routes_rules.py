@@ -10,6 +10,7 @@ from src.core.db import (
     delete_pattern,
     get_all_pattern_stats,
     get_all_patterns,
+    get_hourly_new_pattern_counts,
     get_logs_by_pattern,
     get_pattern_by_id,
     get_pattern_stats,
@@ -216,6 +217,19 @@ def setup_patterns_routes(app):
             return json.dumps(stats)
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get pattern stats: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns/hourly", method=["GET"])
+    def api_get_hourly_new_pattern_counts():
+        logger = logging.getLogger(__name__)
+        try:
+            hours = int(request.params.get("hours", 24))
+            stats = get_hourly_new_pattern_counts(hours=hours)
+            response.content_type = "application/json"
+            return json.dumps({"hours": hours, "stats": stats})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to get hourly pattern counts: {e}")
             response.status = 500
             return {"error": str(e)}
 

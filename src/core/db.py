@@ -1045,6 +1045,16 @@ def get_stats():
         cursor.execute("SELECT COUNT(*) FROM patterns")
         total_patterns = cursor.fetchone()[0]
 
+        cursor.execute(
+            "SELECT COUNT(*) FROM patterns WHERE datetime(first_seen_at) >= datetime('now', 'localtime', '-1 hour')"
+        )
+        patterns_last_hour = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM patterns WHERE datetime(first_seen_at) >= datetime('now', 'localtime', '-24 hours')"
+        )
+        patterns_last_24h = cursor.fetchone()[0]
+
         cursor.execute("SELECT COUNT(*) FROM patterns WHERE classification = 'pending'")
         pending_patterns = cursor.fetchone()[0]
 
@@ -1074,6 +1084,8 @@ def get_stats():
             "total_alerts": total_alerts,
             "top_hosts": top_hosts,
             "total_patterns": total_patterns,
+            "patterns_last_hour": patterns_last_hour,
+            "patterns_last_24h": patterns_last_24h,
             "pending_patterns": pending_patterns,
             "pattern_breakdown": pattern_breakdown,
             "database_size_bytes": db_size,
@@ -1533,6 +1545,24 @@ def get_hourly_alert_counts(hours=24):
         cursor.execute(
             """SELECT strftime('%Y-%m-%d %H:00:00', created_at) AS hour_bucket, COUNT(*) AS cnt
                FROM alerts WHERE created_at >= datetime('now', 'localtime', ?)
+               GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
+            (f"-{hours} hours",),
+        )
+        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        return _fill_hour_gaps(raw, hours)
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_hourly_new_pattern_counts(hours=24):
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT strftime('%Y-%m-%d %H:00:00', datetime(first_seen_at)) AS hour_bucket, COUNT(*) AS cnt
+               FROM patterns WHERE datetime(first_seen_at) >= datetime('now', 'localtime', ?)
                GROUP BY hour_bucket ORDER BY hour_bucket ASC""",
             (f"-{hours} hours",),
         )

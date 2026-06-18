@@ -1,7 +1,8 @@
 import json
 import logging
+import time
 
-from bottle import Bottle, response
+from bottle import Bottle, request, response
 
 from src.api.routes_alerts import setup_alerts_routes
 from src.api.routes_discovery import setup_discovery_routes
@@ -21,6 +22,7 @@ CORS_HEADERS = {
 }
 
 app = Bottle()
+logger = logging.getLogger(__name__)
 
 # Register all route groups
 setup_logs_routes(app)
@@ -71,6 +73,22 @@ def api_test_discord():
         return {"error": str(e)}
 
 
+@app.hook("before_request")
+def record_request_start_time():
+    request.environ["mite_request_start"] = time.perf_counter()
+
+
+@app.hook("after_request")
+def log_request():
+    start = request.environ.get("mite_request_start")
+    elapsed_ms = ((time.perf_counter() - start) * 1000.0) if start else -1.0
+    client_ip = request.environ.get("REMOTE_ADDR", "unknown")
+    log_info(
+        logger,
+        f"[INFO] {request.method} {request.path} -> {response.status_code} ({elapsed_ms:.1f} ms) ip={client_ip}",
+    )
+
+
 # CORS support
 @app.hook("after_request")
 def enable_cors():
@@ -87,8 +105,6 @@ def options_handler(path=None):
 
 
 if __name__ == "__main__":
-    import time
-
     logger = logging.getLogger(__name__)
     log_info(logger, "[INFO] Waiting 5 seconds for database initialization...")
     time.sleep(5)
