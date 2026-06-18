@@ -99,13 +99,87 @@ RULES:
 
 
 def _parse_ai_results(ai_content):
-    """Parse AI output into JSON results using strict JSON decoding only."""
+    """Parse AI output into JSON results, with a small repair pass for bad escapes."""
     json_match = re.search(r"\[.*\]", ai_content, re.DOTALL)
     if not json_match:
         raise json.JSONDecodeError(
             "Could not find JSON array in AI response", ai_content, 0
         )
-    return json.loads(json_match.group())
+
+    json_text = json_match.group()
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError as e:
+        # Common model failure: regex-like strings use invalid JSON escapes (e.g., \d, \.).
+        if "Invalid \\escape" not in str(e):
+            raise
+
+        repaired = _repair_invalid_json_escapes(json_text)
+        return json.loads(repaired)
+
+
+def _repair_invalid_json_escapes(json_text):
+    """Escape invalid backslashes inside JSON strings while preserving valid escapes."""
+    result = []
+    in_string = False
+    i = 0
+    n = len(json_text)
+
+    while i < n:
+        ch = json_text[i]
+
+        if not in_string:
+            result.append(ch)
+            if ch == '"':
+                in_string = True
+            i += 1
+            continue
+
+        if ch == '"':
+            # Count preceding backslashes to determine if quote is escaped.
+            backslashes = 0
+            j = i - 1
+            while j >= 0 and json_text[j] == "\\":
+                backslashes += 1
+                j -= 1
+            if backslashes % 2 == 0:
+                in_string = False
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch != "\\":
+            result.append(ch)
+            i += 1
+            continue
+
+        # Handle backslash in JSON string.
+        if i + 1 >= n:
+            result.append("\\\\")
+            i += 1
+            continue
+
+        nxt = json_text[i + 1]
+        if nxt in ['"', "\\", "/", "b", "f", "n", "r", "t"]:
+            result.append("\\")
+            result.append(nxt)
+            i += 2
+            continue
+
+        if nxt == "u" and i + 5 < n:
+            code = json_text[i + 2 : i + 6]
+            if all(c in "0123456789abcdefABCDEF" for c in code):
+                result.append("\\")
+                result.append("u")
+                result.append(code)
+                i += 6
+                continue
+
+        # Invalid escape sequence; convert '\x' to '\\x'.
+        result.append("\\\\")
+        i += 1
+
+    return "".join(result)
 
 
 def _get_ai_daily_rate_limit():
