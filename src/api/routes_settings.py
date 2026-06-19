@@ -121,7 +121,7 @@ EDITABLE_SETTINGS = {
         "type": "int",
         "min": 1,
     },
-    "write_applcation_log": {
+    "write_application_log": {
         "description": "Write application logs to daily files under applogs when enabled.",
         "default": "false",
         "type": "bool",

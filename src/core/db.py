@@ -150,10 +150,22 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("regex_cache_ttl_seconds", "60"),
         )
+        # Migrate legacy misspelled key to the corrected setting key once.
+        cursor.execute(
+            """UPDATE settings
+               SET key = ?
+               WHERE key = ?
+                 AND NOT EXISTS (SELECT 1 FROM settings WHERE key = ?)""",
+            (
+                "write_application_log",
+                "write_applcation_log",
+                "write_application_log",
+            ),
+        )
         # Seed file logging settings if not already set
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("write_applcation_log", "false"),
+            ("write_application_log", "false"),
         )
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

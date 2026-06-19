@@ -50,7 +50,7 @@ def _write_daily_log_line(subfolder, message):
 def write_application_daily_log(logger, message):
     """Write application logs to daily files under applogs when enabled."""
     try:
-        if _read_bool_setting("write_applcation_log", default=False):
+        if _read_bool_setting("write_application_log", default=False):
             _write_daily_log_line("applogs", message)
     except Exception as e:
         warn = f"[WARN] Failed to write application daily log file: {e}"
