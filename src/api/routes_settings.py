@@ -3,11 +3,7 @@ import logging
 
 from bottle import request, response
 
-from src.core.db import (
-    delete_setting,
-    get_setting,
-    set_setting,
-)
+from src.core.db import delete_setting, get_setting, set_setting
 from src.core.models import DEFAULT_AI_CUSTOM_TOKENS, DEFAULT_AI_PROMPT_TEMPLATE
 from src.utils.locallogging import log_error, log_info
 
