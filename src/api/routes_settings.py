@@ -4,9 +4,7 @@ import logging
 from bottle import request, response
 
 from src.core.db import (
-    connect_to_db,
-    disconnect_from_db,
-    execute_with_retry,
+    delete_setting,
     get_setting,
     set_setting,
 )
@@ -126,6 +124,16 @@ EDITABLE_SETTINGS = {
         "default": "60",
         "type": "int",
         "min": 1,
+    },
+    "write_applcation_log": {
+        "description": "Write application logs to daily files under applogs when enabled.",
+        "default": "false",
+        "type": "bool",
+    },
+    "write_syslog_log": {
+        "description": "Write inbound non-noise syslogs to daily files under syslogs when enabled.",
+        "default": "false",
+        "type": "bool",
     },
 }
 
@@ -266,6 +274,48 @@ def setup_settings_routes(app):
             response.status = 500
             return json.dumps({"error": str(e)})
 
+    @app.route("/api/settings", method=["POST"])
+    def api_create_setting():
+        logger = logging.getLogger(__name__)
+        try:
+            body = request.json or {}
+            key = body.get("key")
+            if not key:
+                response.status = 400
+                return json.dumps({"error": "Missing required field: key"})
+
+            if key not in EDITABLE_SETTINGS:
+                response.status = 404
+                return json.dumps({"error": f"Unknown setting: {key}"})
+
+            if get_setting(key) is not None:
+                response.status = 409
+                return json.dumps({"error": f"Setting already exists: {key}"})
+
+            if "value" not in body:
+                response.status = 400
+                return json.dumps({"error": "Missing required field: value"})
+
+            normalized_value = _normalize_setting_value(key, body["value"])
+            set_setting(key, normalized_value)
+
+            response.content_type = "application/json"
+            response.status = 201
+            return json.dumps(
+                {
+                    "status": "created",
+                    "key": key,
+                    "value": _typed_setting_value(key, normalized_value),
+                }
+            )
+        except ValueError as e:
+            response.status = 400
+            return json.dumps({"error": str(e)})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to create setting: {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
+
     @app.route("/api/settings/<key>", method=["GET"])
     def api_get_setting(key):
         logger = logging.getLogger(__name__)
@@ -326,6 +376,44 @@ def setup_settings_routes(app):
             response.status = 500
             return json.dumps({"error": str(e)})
 
+    @app.route("/api/settings/<key>", method=["POST"])
+    def api_create_setting_by_key(key):
+        logger = logging.getLogger(__name__)
+        try:
+            if key not in EDITABLE_SETTINGS:
+                response.status = 404
+                return json.dumps({"error": f"Unknown setting: {key}"})
+
+            if get_setting(key) is not None:
+                response.status = 409
+                return json.dumps({"error": f"Setting already exists: {key}"})
+
+            body = request.json or {}
+            if "value" not in body:
+                response.status = 400
+                return json.dumps({"error": "Missing required field: value"})
+
+            normalized_value = _normalize_setting_value(key, body["value"])
+            set_setting(key, normalized_value)
+
+            log_info(logger, f"[INFO] Setting '{key}' created")
+            response.content_type = "application/json"
+            response.status = 201
+            return json.dumps(
+                {
+                    "status": "created",
+                    "key": key,
+                    "value": _typed_setting_value(key, normalized_value),
+                }
+            )
+        except ValueError as e:
+            response.status = 400
+            return json.dumps({"error": str(e)})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to create setting '{key}': {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
+
     @app.route("/api/settings/<key>/reset", method=["POST"])
     def api_reset_setting(key):
         logger = logging.getLogger(__name__)
@@ -334,21 +422,32 @@ def setup_settings_routes(app):
                 response.status = 404
                 return json.dumps({"error": f"Unknown setting: {key}"})
 
-            def _delete():
-                conn = connect_to_db()
-                if not conn:
-                    return
-                try:
-                    conn.cursor().execute("DELETE FROM settings WHERE key = ?", (key,))
-                    conn.commit()
-                finally:
-                    disconnect_from_db(conn)
-
-            execute_with_retry(_delete)
+            delete_setting(key)
             log_info(logger, f"[INFO] Setting '{key}' reset to default")
             response.content_type = "application/json"
             return json.dumps({"status": "ok", "key": key})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to reset setting '{key}': {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
+
+    @app.route("/api/settings/<key>", method=["DELETE"])
+    def api_delete_setting(key):
+        logger = logging.getLogger(__name__)
+        try:
+            if key not in EDITABLE_SETTINGS:
+                response.status = 404
+                return json.dumps({"error": f"Unknown setting: {key}"})
+
+            if get_setting(key) is None:
+                response.status = 404
+                return json.dumps({"error": f"Setting not found: {key}"})
+
+            delete_setting(key)
+            log_info(logger, f"[INFO] Setting '{key}' deleted")
+            response.content_type = "application/json"
+            return json.dumps({"status": "deleted", "key": key})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to delete setting '{key}': {e}")
             response.status = 500
             return json.dumps({"error": str(e)})

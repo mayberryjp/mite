@@ -28,7 +28,7 @@ from src.core.db import (
 )
 from src.core.discord import send_alert_discord
 from src.core.pattern_extractor import extract_pattern, hash_pattern
-from src.utils.locallogging import log_error, log_info
+from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +366,9 @@ def process_log(log_entry):
         increment_noise_stat(log_entry["received_at"])
         delete_logs([log_entry["id"]])
         return True
+
+    # Persist inbound non-noise syslogs when explicitly enabled.
+    write_syslog_daily_log(logger, log_entry.get("raw_message") or message)
 
     if effective in ALERT_SEVERITIES:
         alert_id = insert_alert(

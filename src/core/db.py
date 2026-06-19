@@ -150,6 +150,15 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("regex_cache_ttl_seconds", "60"),
         )
+        # Seed file logging settings if not already set
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("write_applcation_log", "false"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("write_syslog_log", "false"),
+        )
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:
@@ -1170,6 +1179,23 @@ def set_setting(key, value):
             disconnect_from_db(conn)
 
     execute_with_retry(_upsert)
+
+
+def delete_setting(key):
+    """Delete a settings key/value pair."""
+
+    def _delete():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_delete)
 
 
 def increment_discarded_too_small_count():
