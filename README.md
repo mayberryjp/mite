@@ -62,19 +62,41 @@ Traditional syslog monitoring requires you to write rules. Lots of rules. And th
 
 ### Docker (Recommended)
 
-```bash
-# Clone the repository
-git clone https://github.com/mayberryjp/mite.git
-cd mite
+**Option 1: Using docker-compose**
 
-# Start with docker-compose (pulls from Docker Hub)
+```bash
+# Download the docker-compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/mayberryjp/mite/main/docker-compose.yml
+
+# Start Mite (pulls from Docker Hub)
 docker compose up -d
+```
+
+**Option 2: Using docker run**
+
+```bash
+docker run -d \
+  --name mite \
+  --restart unless-stopped \
+  -p 4060:4060 \
+  -p 1514:1514/udp \
+  -p 1515:1515/tcp \
+  -v /docker/mite/data:/app/data \
+  -v /docker/mite/logs:/app/logs \
+  -e MITE_API_PORT=4060 \
+  -e MITE_DB_PATH=/app/data/Mite.sqlite \
+  -e AI_API_BASE_URL="" \
+  -e AI_API_KEY="" \
+  -e AI_MODEL="" \
+  mayberry4477/mite:latest
 ```
 
 **Default ports:**
 - **API:** 4060 (REST endpoints)
 - **Syslog UDP:** 1514
 - **Syslog TCP:** 1515
+
+> **Docker Hub**: [mayberry4477/mite](https://hub.docker.com/r/mayberry4477/mite) — Always pulls the latest stable image
 
 ### Local Development
 
