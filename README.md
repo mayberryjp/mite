@@ -60,72 +60,30 @@ Traditional syslog monitoring requires you to write rules. Lots of rules. And th
 
 ## 🚀 Quick Start
 
-### Docker (Recommended)
+### Docker Compose
 
-**Option 1: Using docker-compose**
+Mite runs entirely in Docker. Choose the configuration that fits your setup:
 
+**Backend API only:**
 ```bash
-# Download the docker-compose file
 curl -o docker-compose.yml https://raw.githubusercontent.com/mayberryjp/mite/main/docker-compose.yml
-
-# Start Mite (pulls from Docker Hub)
 docker compose up -d
 ```
 
-**Option 2: Using docker run**
-
+**Backend API + Frontend Web UI:**
 ```bash
-docker run -d \
-  --name mite \
-  --restart unless-stopped \
-  -p 4060:4060 \
-  -p 1514:1514/udp \
-  -p 1515:1515/tcp \
-  -v /docker/mite/data:/app/data \
-  -v /docker/mite/logs:/app/logs \
-  -e MITE_API_PORT=4060 \
-  -e MITE_DB_PATH=/app/data/Mite.sqlite \
-  -e AI_API_BASE_URL="" \
-  -e AI_API_KEY="" \
-  -e AI_MODEL="" \
-  mayberry4477/mite:latest
+curl -o docker-compose-backend.yml https://raw.githubusercontent.com/mayberryjp/mite/main/docker-compose.yml
+curl -o docker-compose-frontend.yml https://raw.githubusercontent.com/mayberryjp/mite-web/main/docker-compose.yml
+docker compose -f docker-compose-backend.yml -f docker-compose-frontend.yml up -d
 ```
 
 **Default ports:**
 - **API:** 4060 (REST endpoints)
+- **Web UI:** 4050 (Frontend dashboard)
 - **Syslog UDP:** 1514
 - **Syslog TCP:** 1515
 
-> **Docker Hub**: [mayberry4477/mite](https://hub.docker.com/r/mayberry4477/mite) — Always pulls the latest stable image
-
-### Local Development
-
-```bash
-# Requirements: Python 3.12
-
-# Create virtual environment
-python -m venv .venv
-
-# Activate
-source .venv/bin/activate  # Linux/macOS
-.venv\Scripts\Activate.ps1  # Windows PowerShell
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Initialize database and directories
-python -m src.main
-
-# Run API server
-python -m src.api.server
-
-# In separate terminals, run workers:
-python -m src.workers.processor
-python -m src.workers.udp_listener
-python -m src.workers.tcp_listener
-python -m src.workers.ai_worker
-python -m src.workers.retention_worker
-```
+> **Docker Hub**: [mayberry4477/mite](https://hub.docker.com/r/mayberry4477/mite) · [mayberry4477/mite-web](https://hub.docker.com/r/mayberry4477/mite-web)
 
 ---
 
@@ -351,16 +309,6 @@ python -m isort --check-only src/
 python -m black src/
 python -m isort src/
 ```
-
-### Local Development Workflow
-
-1. **Make changes** in your editor
-2. **Test locally** by running the server and workers
-3. **Send syslog** to test:
-   ```bash
-   echo '<86>Jun 15 10:22:33 myhost myapp[1234]: Test message' | nc -u localhost 1514
-   ```
-4. **Check API** at `http://localhost:4060/api/logs`
 
 ---
 
