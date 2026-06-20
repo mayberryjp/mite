@@ -1,0 +1,17 @@
+  - mite: 
+      icon: wazuh # new icon coming soon
+      href: http://website url:4050
+      widget:
+        type: customapi
+        url: http://ip or hostname:4060/api/stats
+        refreshInterval: 600000
+        method: GET
+        mappings:
+          - field: alerts_last_24h
+            label: 24H Alerts
+          - field: pending_patterns
+            label: Pending logs
+          - field: ai_api_calls_24h
+            label: 24H AI Calls
+          - field: logs_last_hour
+            label: Logs Last Hour
