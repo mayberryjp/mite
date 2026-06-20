@@ -62,24 +62,58 @@ Traditional syslog monitoring requires you to write rules. Lots of rules. And th
 
 ### Docker Compose
 
-Mite runs entirely in Docker. Choose the configuration that fits your setup:
+Mite consists of a backend API and frontend web UI, both running in Docker.
 
-**Backend API only:**
-```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/mayberryjp/mite/main/docker-compose.yml
-docker compose up -d
+**Backend (docker-compose.yml):**
+
+```yaml
+version: "3"
+services:
+  mite:
+    image: mayberry4477/mite:latest
+    container_name: mite
+    restart: unless-stopped
+    ports:
+      - 4060:4060
+      - "1514:1514/udp"
+      - "1515:1515/tcp"
+    volumes:
+      - /docker/mite/data:/app/data
+      - /docker/mite/logs:/app/logs
+    environment:
+      - MITE_API_HOST=0.0.0.0
+      - MITE_API_PORT=4060
+      - MITE_SYSLOG_UDP_HOST=0.0.0.0
+      - MITE_SYSLOG_UDP_PORT=1514
+      - MITE_SYSLOG_TCP_HOST=0.0.0.0
+      - MITE_SYSLOG_TCP_PORT=1515
+      - MITE_DB_PATH=/app/data/Mite.sqlite
+      - MITE_LOGS_DIR=/app/logs
+      - AI_API_BASE_URL=
+      - AI_API_KEY=
+      - AI_MODEL=
+      - TZ=Asia/Tokyo
 ```
 
-**Backend API + Frontend Web UI:**
-```bash
-curl -o docker-compose-backend.yml https://raw.githubusercontent.com/mayberryjp/mite/main/docker-compose.yml
-curl -o docker-compose-frontend.yml https://raw.githubusercontent.com/mayberryjp/mite-web/main/docker-compose.yml
-docker compose -f docker-compose-backend.yml -f docker-compose-frontend.yml up -d
+**Frontend (docker-compose.yml):**
+
+```yaml
+version: "3"
+services:
+  mite-web:
+    image: mayberry4477/mite-web:latest
+    container_name: mite-web
+    restart: unless-stopped
+    ports:
+      - "4050:4050"
+    environment:
+      - MITE_API_BASE_URL=http://192.168.4.4:4060/api
+      - TZ=Asia/Tokyo
 ```
 
-**Default ports:**
-- **API:** 4060 (REST endpoints)
+**Ports:**
 - **Web UI:** 4050 (Frontend dashboard)
+- **API:** 4060 (REST endpoints)
 - **Syslog UDP:** 1514
 - **Syslog TCP:** 1515
 
