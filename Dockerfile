@@ -24,5 +24,6 @@ RUN python -m src.main
 EXPOSE 4060/tcp
 EXPOSE 1514/udp
 EXPOSE 1515/tcp
+EXPOSE 4070/tcp
 
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

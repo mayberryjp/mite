@@ -77,6 +77,7 @@ services:
       - 4060:4060
       - "1514:1514/udp"
       - "1515:1515/tcp"
+      - "8030:8030/tcp"
     volumes:
       - /docker/mite/data:/app/data
       - /docker/mite/logs:/app/logs
@@ -87,6 +88,8 @@ services:
       - MITE_SYSLOG_UDP_PORT=1514
       - MITE_SYSLOG_TCP_HOST=0.0.0.0
       - MITE_SYSLOG_TCP_PORT=1515
+      - MITE_MCP_HOST=0.0.0.0
+      - MITE_MCP_PORT=8030
       - MITE_DB_PATH=/app/data/Mite.sqlite
       - MITE_LOGS_DIR=/app/logs
       - AI_API_BASE_URL=
@@ -116,6 +119,7 @@ services:
 - **API:** 4060 (REST endpoints)
 - **Syslog UDP:** 1514
 - **Syslog TCP:** 1515
+- **MCP:** 8030 (JSON-RPC endpoint at `/mcp`)
 
 > **Docker Hub**: [mayberry4477/mite](https://hub.docker.com/r/mayberry4477/mite) · [mayberry4477/mite-web](https://hub.docker.com/r/mayberry4477/mite-web)
 
@@ -133,6 +137,8 @@ All configuration is via **environment variables**. Set them in your shell or `d
 | `MITE_SYSLOG_UDP_PORT` | `1514` | UDP listener port |
 | `MITE_SYSLOG_TCP_HOST` | `0.0.0.0` | TCP listener bind address |
 | `MITE_SYSLOG_TCP_PORT` | `1515` | TCP listener port |
+| `MITE_MCP_HOST` | `0.0.0.0` | MCP server bind address |
+| `MITE_MCP_PORT` | `8030` | MCP server port |
 | `MITE_DB_PATH` | `/app/data/Mite.sqlite` | SQLite database location |
 | `MITE_LOGS_DIR` | `/app/logs` | Application logs directory |
 | `AI_API_BASE_URL` | `` | OpenAI-compatible API endpoint (required for AI) |
@@ -174,6 +180,8 @@ Mite also supports any OpenAI-compatible API (local LLMs, Ollama, Azure OpenAI, 
 │  │                                                      │   │
 │  │  • API Server (port 4060)                           │   │
 │  │    └─→ REST endpoints (logs, alerts, patterns...)   │   │
+│  │  • MCP Server (port 8030)                           │   │
+│  │    └─→ Streamable HTTP JSON-RPC tools on /mcp       │   │
 │  │                                                      │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
@@ -208,6 +216,7 @@ Syslog Sources → UDP/TCP Listeners → SQLite logs table (processed=0)
 - **AI Worker**: Picks up pending patterns, sends to LLM in batches, stores classifications
 - **Retention Worker**: Deletes old logs and alerts based on configurable retention periods
 - **API Server**: Bottle + Waitress, serves REST endpoints for UI and external integrations
+- **MCP Server**: Bottle + Waitress JSON-RPC endpoint at `/mcp` for MCP tool access
 
 ---
 

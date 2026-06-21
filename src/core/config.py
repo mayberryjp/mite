@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 MITE_API_HOST = os.getenv("MITE_API_HOST", "0.0.0.0")
 MITE_API_PORT = int(os.getenv("MITE_API_PORT", "8080"))
 
+# MCP
+MITE_MCP_HOST = os.getenv("MITE_MCP_HOST", "0.0.0.0")
+MITE_MCP_PORT = int(os.getenv("MITE_MCP_PORT", "4070"))
+
 # Syslog
 MITE_SYSLOG_UDP_HOST = os.getenv("MITE_SYSLOG_UDP_HOST", "0.0.0.0")
 MITE_SYSLOG_UDP_PORT = int(os.getenv("MITE_SYSLOG_UDP_PORT", "1514"))

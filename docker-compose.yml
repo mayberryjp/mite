@@ -8,6 +8,7 @@ services:
       - 4060:4060
       - "1514:1514/udp"
       - "1515:1515/tcp"
+      - "4070:4070/tcp"
     volumes:
       - /docker/mite/data:/app/data
       - /docker/mite/logs:/app/logs
@@ -18,6 +19,8 @@ services:
       - MITE_SYSLOG_UDP_PORT=1514
       - MITE_SYSLOG_TCP_HOST=0.0.0.0
       - MITE_SYSLOG_TCP_PORT=1515
+      - MITE_MCP_HOST=0.0.0.0
+      - MITE_MCP_PORT=4070
       - MITE_DB_PATH=/app/data/Mite.sqlite
       - MITE_LOGS_DIR=/app/logs
       - AI_API_BASE_URL=
