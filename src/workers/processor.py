@@ -16,7 +16,6 @@ from src.core.db import (
     get_setting,
     get_unprocessed_logs,
     increment_discarded_too_small_count,
-    increment_host_alert_count,
     increment_noise_stat,
     increment_pattern_hit,
     increment_pattern_stat,
@@ -24,7 +23,6 @@ from src.core.db import (
     insert_pattern,
     mark_logs_processed,
     update_alert_discord_sent,
-    upsert_host,
 )
 from src.core.discord import send_alert_discord
 from src.core.pattern_extractor import extract_pattern, hash_pattern
@@ -256,13 +254,6 @@ def _classify_until_regex_matches(
 def process_log(log_entry):
     """Process a single log entry. Returns True to continue processing."""
 
-    # Track the host
-    upsert_host(
-        log_entry.get("host"),
-        log_entry.get("source_ip"),
-        log_entry["received_at"],
-    )
-
     message = log_entry.get("message", "")
     tokenized_message = preprocess_sample_for_ai(message)
     normalized_pattern = extract_pattern(tokenized_message)
@@ -382,8 +373,6 @@ def process_log(log_entry):
             reason=pattern.get("ai_explanation", ""),
             action="",
         )
-
-        increment_host_alert_count(log_entry.get("host"), log_entry.get("source_ip"))
 
         if alert_id and effective == "critical":
             success = send_alert_discord(

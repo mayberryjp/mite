@@ -8,7 +8,7 @@ Mite is a lightweight, hands-off syslog monitoring and alerting tool for homelab
 
 Mite runs as multiple independent processes managed by supervisord inside a single Docker container:
 
-- **`src.api.server`** — Bottle + Waitress REST API. Routes are split into `routes_logs`, `routes_alerts`, `routes_hosts`, `routes_rules` (pattern management), and `routes_discovery` (AI classification).
+- **`src.api.server`** — Bottle + Waitress REST API. Routes are split into `routes_logs`, `routes_alerts`, `routes_rules` (pattern management), and `routes_discovery` (AI classification).
 - **`src.workers.udp_listener`** / **`src.workers.tcp_listener`** — Socket listeners that parse incoming syslog (RFC 3164) and insert raw logs into the `logs` table.
 - **`src.workers.processor`** — Polls `logs` for unprocessed rows every 10 seconds, extracts a normalized pattern from each message, looks up or creates the pattern in the `patterns` table, and creates alerts for critical/high patterns.
 - **`src.workers.ai_worker`** — Periodically picks up pending (unclassified) patterns and sends them to an OpenAI-compatible API in batches for classification.
@@ -73,7 +73,6 @@ Each worker script sleeps 5-10 seconds on startup to wait for database initializ
 - `PUT /api/patterns/<id>` — Override pattern classification
 - `GET /api/ai/pending` — List patterns awaiting AI classification
 - `POST /api/ai/classify` — Manually trigger AI classification
-- `GET /api/hosts` — List all known hosts
 - `GET /api/stats` — Dashboard statistics
 - `GET /api/health` — Health check
 

@@ -67,6 +67,12 @@ EDITABLE_SETTINGS = {
         "type": "int",
         "min": 1,
     },
+    "ai_regex_review_interval_seconds": {
+        "description": "How often the AI worker reviews regex duplication/similarity for consolidation suggestions.",
+        "default": "604800",
+        "type": "int",
+        "min": 3600,
+    },
     "processor_interval_seconds": {
         "description": "How often the processor runs each cycle.",
         "default": "10",
@@ -132,6 +138,29 @@ EDITABLE_SETTINGS = {
         "type": "bool",
     },
 }
+
+READ_ONLY_SETTINGS = {
+    "ai_efficiency_score": {
+        "description": "AI-provided regex efficiency score (0-100) based on duplicate/similar pattern review.",
+        "default": 0.0,
+        "type": "float",
+    }
+}
+
+
+def _get_ai_efficiency_score():
+    raw = get_setting("ai_efficiency_score", "0.0")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _get_read_only_setting_value(key):
+    if key == "ai_efficiency_score":
+        return _get_ai_efficiency_score()
+
+    raise ValueError(f"Unknown read-only setting: {key}")
 
 
 def _normalize_setting_value(key, value):
@@ -261,8 +290,23 @@ def setup_settings_routes(app):
                         "is_custom": value is not None,
                         "description": meta["description"],
                         "type": meta["type"],
+                        "read_only": False,
                     }
                 )
+
+            for key, meta in READ_ONLY_SETTINGS.items():
+                result.append(
+                    {
+                        "key": key,
+                        "value": _get_read_only_setting_value(key),
+                        "default": meta["default"],
+                        "is_custom": False,
+                        "description": meta["description"],
+                        "type": meta["type"],
+                        "read_only": True,
+                    }
+                )
+
             response.content_type = "application/json"
             return json.dumps(result)
         except Exception as e:
@@ -279,6 +323,10 @@ def setup_settings_routes(app):
             if not key:
                 response.status = 400
                 return json.dumps({"error": "Missing required field: key"})
+
+            if key in READ_ONLY_SETTINGS:
+                response.status = 403
+                return json.dumps({"error": f"Setting is read-only: {key}"})
 
             if key not in EDITABLE_SETTINGS:
                 response.status = 404
@@ -316,6 +364,21 @@ def setup_settings_routes(app):
     def api_get_setting(key):
         logger = logging.getLogger(__name__)
         try:
+            if key in READ_ONLY_SETTINGS:
+                meta = READ_ONLY_SETTINGS[key]
+                response.content_type = "application/json"
+                return json.dumps(
+                    {
+                        "key": key,
+                        "value": _get_read_only_setting_value(key),
+                        "default": meta["default"],
+                        "is_custom": False,
+                        "description": meta["description"],
+                        "type": meta["type"],
+                        "read_only": True,
+                    }
+                )
+
             if key not in EDITABLE_SETTINGS:
                 response.status = 404
                 return json.dumps({"error": f"Unknown setting: {key}"})
@@ -332,6 +395,7 @@ def setup_settings_routes(app):
                     "is_custom": value is not None,
                     "description": meta["description"],
                     "type": meta["type"],
+                    "read_only": False,
                 }
             )
         except Exception as e:
@@ -343,6 +407,10 @@ def setup_settings_routes(app):
     def api_set_setting(key):
         logger = logging.getLogger(__name__)
         try:
+            if key in READ_ONLY_SETTINGS:
+                response.status = 403
+                return json.dumps({"error": f"Setting is read-only: {key}"})
+
             if key not in EDITABLE_SETTINGS:
                 response.status = 404
                 return json.dumps({"error": f"Unknown setting: {key}"})
@@ -376,6 +444,10 @@ def setup_settings_routes(app):
     def api_create_setting_by_key(key):
         logger = logging.getLogger(__name__)
         try:
+            if key in READ_ONLY_SETTINGS:
+                response.status = 403
+                return json.dumps({"error": f"Setting is read-only: {key}"})
+
             if key not in EDITABLE_SETTINGS:
                 response.status = 404
                 return json.dumps({"error": f"Unknown setting: {key}"})
@@ -414,6 +486,10 @@ def setup_settings_routes(app):
     def api_reset_setting(key):
         logger = logging.getLogger(__name__)
         try:
+            if key in READ_ONLY_SETTINGS:
+                response.status = 403
+                return json.dumps({"error": f"Setting is read-only: {key}"})
+
             if key not in EDITABLE_SETTINGS:
                 response.status = 404
                 return json.dumps({"error": f"Unknown setting: {key}"})
@@ -431,6 +507,10 @@ def setup_settings_routes(app):
     def api_delete_setting(key):
         logger = logging.getLogger(__name__)
         try:
+            if key in READ_ONLY_SETTINGS:
+                response.status = 403
+                return json.dumps({"error": f"Setting is read-only: {key}"})
+
             if key not in EDITABLE_SETTINGS:
                 response.status = 404
                 return json.dumps({"error": f"Unknown setting: {key}"})

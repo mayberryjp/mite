@@ -6,8 +6,8 @@ import time
 from src.core.config import MITE_DB_PATH
 from src.core.models import (
     CONST_CREATE_AI_API_CALLS_SQL,
+    CONST_CREATE_ACTIONS_SQL,
     CONST_CREATE_ALERTS_SQL,
-    CONST_CREATE_HOSTS_SQL,
     CONST_CREATE_LOGS_SQL,
     CONST_CREATE_NOISE_STATS_SQL,
     CONST_CREATE_PATTERN_STATS_SQL,
@@ -52,11 +52,12 @@ def init_database():
         conn = sqlite3.connect(MITE_DB_PATH)
         conn.execute("PRAGMA busy_timeout = 10000")
         cursor = conn.cursor()
+        cursor.execute("DROP TABLE IF EXISTS hosts")
         for sql in [
             CONST_CREATE_PATTERNS_SQL,
             CONST_CREATE_LOGS_SQL,
             CONST_CREATE_ALERTS_SQL,
-            CONST_CREATE_HOSTS_SQL,
+            CONST_CREATE_ACTIONS_SQL,
             CONST_CREATE_PATTERN_STATS_SQL,
             CONST_CREATE_NOISE_STATS_SQL,
             CONST_CREATE_AI_API_CALLS_SQL,
@@ -113,6 +114,18 @@ def init_database():
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("ai_batch_size", "20"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_regex_review_interval_seconds", "604800"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_regex_review_last_run_epoch", "0"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("ai_efficiency_score", "0.0"),
         )
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -256,36 +269,6 @@ def insert_logs_batch(logs, conn=None):
 
     try:
         execute_with_retry(_batch_insert)
-    finally:
-        if own_conn:
-            disconnect_from_db(conn)
-
-
-def upsert_hosts_batch(hosts, conn=None):
-    """Upsert multiple hosts in a single transaction. Each host is a tuple of
-    (host, source_ip, timestamp)."""
-    if not hosts:
-        return
-
-    own_conn = conn is None
-    if own_conn:
-        conn = connect_to_db()
-        if not conn:
-            return
-
-    def _batch_upsert():
-        cursor = conn.cursor()
-        cursor.executemany(
-            """INSERT INTO hosts (host, source_ip, first_seen_at, last_seen_at, log_count)
-               VALUES (?, ?, ?, ?, 1)
-               ON CONFLICT(source_ip, host)
-               DO UPDATE SET last_seen_at = ?, log_count = log_count + 1""",
-            [(h, s, t, t, t) for h, s, t in hosts],
-        )
-        conn.commit()
-
-    try:
-        execute_with_retry(_batch_upsert)
     finally:
         if own_conn:
             disconnect_from_db(conn)
@@ -537,8 +520,15 @@ def insert_pattern(
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (pattern_hash, pattern_text, sample_message, host, program, ts, ts),
             )
+            pattern_id = cursor.lastrowid
+            action_text = f"New pattern created (id={pattern_id}): {pattern_text}"
+            cursor.execute(
+                """INSERT INTO actions (action_text, acknowledged)
+                   VALUES (?, 0)""",
+                (action_text,),
+            )
             conn.commit()
-            return cursor.lastrowid
+            return pattern_id
         finally:
             disconnect_from_db(conn)
 
@@ -947,69 +937,152 @@ def get_alerts(
         disconnect_from_db(conn)
 
 
-# --- Host operations ---
+# --- Action operations ---
 
 
-def upsert_host(host, source_ip, timestamp):
-    def _upsert():
+def create_action(action_text, acknowledged=False):
+    def _insert():
         conn = connect_to_db()
         if not conn:
-            return
+            return None
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO hosts (host, source_ip, first_seen_at, last_seen_at, log_count)
-                   VALUES (?, ?, ?, ?, 1)
-                   ON CONFLICT(source_ip, host)
-                   DO UPDATE SET last_seen_at = ?, log_count = log_count + 1""",
-                (host, source_ip, timestamp, timestamp, timestamp),
+                """INSERT INTO actions (action_text, acknowledged)
+                   VALUES (?, ?)""",
+                (action_text, 1 if acknowledged else 0),
             )
             conn.commit()
+            return cursor.lastrowid
         finally:
             disconnect_from_db(conn)
 
-    execute_with_retry(_upsert)
+    return execute_with_retry(_insert)
 
 
-def increment_host_alert_count(host, source_ip):
+def get_action_by_id(action_id):
     conn = connect_to_db()
     if not conn:
-        return
+        return None
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE hosts SET alert_count = alert_count + 1 WHERE source_ip = ? AND (host = ? OR host IS NULL)",
-            (source_ip, host),
+            """SELECT action_id, action_text, acknowledged, insert_date
+               FROM actions
+               WHERE action_id = ?""",
+            (action_id,),
         )
-        conn.commit()
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "action_id": row[0],
+            "action_text": row[1],
+            "acknowledged": bool(row[2]),
+            "insert_date": row[3],
+        }
     finally:
         disconnect_from_db(conn)
 
 
-def get_all_hosts():
+def get_actions(limit=100, offset=0, acknowledged=None, search=None):
     conn = connect_to_db()
     if not conn:
-        return []
+        return [], 0
     try:
         cursor = conn.cursor()
+        conditions = []
+        params = []
+
+        if acknowledged is not None:
+            conditions.append("acknowledged = ?")
+            params.append(1 if acknowledged else 0)
+
+        if search:
+            conditions.append("action_text LIKE ?")
+            params.append(f"%{search}%")
+
+        where = ""
+        if conditions:
+            where = "WHERE " + " AND ".join(conditions)
+
+        cursor.execute(f"SELECT COUNT(*) FROM actions {where}", params)
+        total = cursor.fetchone()[0]
+
         cursor.execute(
-            "SELECT id, host, source_ip, first_seen_at, last_seen_at, log_count, alert_count FROM hosts ORDER BY last_seen_at DESC"
+            f"""SELECT action_id, action_text, acknowledged, insert_date
+                FROM actions
+                {where}
+                ORDER BY action_id DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
         )
         rows = cursor.fetchall()
-        return [
+        items = [
             {
-                "id": r[0],
-                "host": r[1],
-                "source_ip": r[2],
-                "first_seen_at": r[3],
-                "last_seen_at": r[4],
-                "log_count": r[5],
-                "alert_count": r[6],
+                "action_id": r[0],
+                "action_text": r[1],
+                "acknowledged": bool(r[2]),
+                "insert_date": r[3],
             }
             for r in rows
         ]
+        return items, total
     finally:
         disconnect_from_db(conn)
+
+
+def update_action(action_id, action_text=None, acknowledged=None):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return False
+        try:
+            set_clauses = []
+            params = []
+
+            if action_text is not None:
+                set_clauses.append("action_text = ?")
+                params.append(action_text)
+
+            if acknowledged is not None:
+                set_clauses.append("acknowledged = ?")
+                params.append(1 if acknowledged else 0)
+
+            if not set_clauses:
+                return False
+
+            params.append(action_id)
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE actions SET {', '.join(set_clauses)} WHERE action_id = ?",
+                params,
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            disconnect_from_db(conn)
+
+    return execute_with_retry(_update)
+
+
+def delete_action(action_id):
+    def _delete():
+        conn = connect_to_db()
+        if not conn:
+            return False
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM actions WHERE action_id = ?", (action_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            disconnect_from_db(conn)
+
+    return execute_with_retry(_delete)
+
+
+# --- Host operations ---
 
 
 # --- Stats operations ---
@@ -1055,14 +1128,6 @@ def get_stats():
         cursor.execute("SELECT COUNT(*) FROM alerts")
         total_alerts = cursor.fetchone()[0]
 
-        cursor.execute(
-            "SELECT source_ip, host, log_count FROM hosts ORDER BY log_count DESC LIMIT 10"
-        )
-        top_hosts = [
-            {"source_ip": r[0], "host": r[1], "log_count": r[2]}
-            for r in cursor.fetchall()
-        ]
-
         cursor.execute("SELECT COUNT(*) FROM patterns")
         total_patterns = cursor.fetchone()[0]
 
@@ -1103,7 +1168,6 @@ def get_stats():
             "alerts_last_hour": alerts_last_hour,
             "alerts_last_24h": alerts_last_24h,
             "total_alerts": total_alerts,
-            "top_hosts": top_hosts,
             "total_patterns": total_patterns,
             "patterns_last_hour": patterns_last_hour,
             "patterns_last_24h": patterns_last_24h,

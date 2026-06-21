@@ -6,6 +6,8 @@ import requests
 
 from src.core.config import AI_API_BASE_URL, AI_API_KEY, AI_MODEL
 from src.core.db import (
+    create_action,
+    get_all_patterns,
     get_ai_api_call_count_24h,
     get_setting,
     record_ai_api_call,
@@ -95,6 +97,35 @@ RULES:
     HEX_VALUE, TIMESTAMP, DATE, TIME, DYNAMIC_VALUE. They are plain words — skip them when picking keywords.
 - Do NOT hardcode site-specific hostnames or environment labels.
 - Use .* (not .+) between keywords so empty spans are allowed.
+"""
+
+
+REGEX_EFFICIENCY_REVIEW_REQUIREMENTS = r"""
+
+You are reviewing pattern regex quality for deduplication and consolidation opportunities.
+
+Goals:
+1) Identify duplicate or very similar regex patterns that could be consolidated.
+2) Recommend concrete consolidation actions.
+3) Provide an overall efficiency score from 0 to 100, where:
+     - 100 = no meaningful duplication/similarity
+     - 0 = extreme duplication/similarity
+
+Response format requirements:
+- Return ONLY valid JSON object (no markdown, no prose outside JSON).
+- Exact top-level keys:
+    - "efficiency_score": number (0-100)
+    - "summary": string
+    - "suggestions": array of objects
+- Each suggestion object must include:
+    - "pattern_ids": array of integers
+    - "reason": string
+    - "recommendation": string
+
+Scoring guidance:
+- Consider both exact duplicates and near-duplicates.
+- Weight high-hit patterns more heavily when estimating inefficiency.
+- Be conservative: do not over-merge patterns that represent distinct events.
 """
 
 
@@ -470,3 +501,165 @@ def classify_single_pattern(pattern):
         logger, f"[ERROR] AI returned no classification for pattern {pattern['id']}"
     )
     return None
+
+
+def review_pattern_regex_efficiency():
+    """Review all regex-bearing patterns for consolidation opportunities.
+
+    Updates read-only setting key `ai_efficiency_score` and creates action suggestions.
+    """
+    if not AI_API_BASE_URL or not AI_API_KEY:
+        return {
+            "status": "error",
+            "message": "AI API not configured — set AI_API_BASE_URL, AI_API_KEY, and AI_MODEL",
+        }
+
+    patterns, _ = get_all_patterns(limit=None, offset=0)
+    regex_patterns = [
+        p for p in patterns if isinstance(p.get("match_regex"), str) and p["match_regex"].strip()
+    ]
+
+    if len(regex_patterns) < 2:
+        set_setting("ai_efficiency_score", "100.0")
+        return {
+            "status": "ok",
+            "efficiency_score": 100.0,
+            "suggestions_created": 0,
+            "message": "Not enough regex patterns to evaluate",
+        }
+
+    if not _check_rate_limit():
+        count = get_ai_api_call_count_24h()
+        rate_limit = _get_ai_daily_rate_limit()
+        return {
+            "status": "error",
+            "message": f"Rate limit reached ({count}/{rate_limit})",
+        }
+
+    lines = []
+    for p in regex_patterns:
+        effective = p.get("user_override") or p.get("classification") or "pending"
+        lines.append(
+            "\n".join(
+                [
+                    f"ID: {p.get('id')}",
+                    f"Title: {p.get('title') or ''}",
+                    f"Classification: {effective}",
+                    f"Hit Count: {p.get('hit_count') or 0}",
+                    f"Regex: {p.get('match_regex')}",
+                    f"Sample: {p.get('sample_message') or ''}",
+                ]
+            )
+        )
+
+    review_prompt = (
+        "Review the following pattern regexes for duplication/similarity and consolidation opportunities.\n\n"
+        + REGEX_EFFICIENCY_REVIEW_REQUIREMENTS
+        + "\n\nPatterns:\n\n"
+        + "\n---\n".join(lines)
+    )
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {AI_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": AI_MODEL,
+            "messages": [{"role": "user", "content": review_prompt}],
+        }
+
+        resp = requests.post(
+            f"{AI_API_BASE_URL.rstrip('/')}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=120,
+        )
+
+        if resp.status_code != 200:
+            return {
+                "status": "error",
+                "message": f"AI API HTTP {resp.status_code}: {resp.text[:500]}",
+            }
+
+        record_ai_api_call()
+        data = resp.json()
+        ai_content = data["choices"][0]["message"]["content"]
+
+        obj_match = re.search(r"\{.*\}", ai_content, re.DOTALL)
+        if not obj_match:
+            return {
+                "status": "error",
+                "message": "Invalid JSON object from AI regex review",
+            }
+
+        try:
+            review_result = json.loads(obj_match.group())
+        except json.JSONDecodeError:
+            repaired = _repair_invalid_json_escapes(obj_match.group())
+            review_result = json.loads(repaired)
+
+        score_raw = review_result.get("efficiency_score", 0)
+        try:
+            score = float(score_raw)
+        except (TypeError, ValueError):
+            score = 0.0
+
+        if score < 0:
+            score = 0.0
+        if score > 100:
+            score = 100.0
+
+        set_setting("ai_efficiency_score", f"{score:.2f}")
+
+        suggestions = review_result.get("suggestions")
+        if not isinstance(suggestions, list):
+            suggestions = []
+
+        created = 0
+        for s in suggestions:
+            if not isinstance(s, dict):
+                continue
+
+            pattern_ids = s.get("pattern_ids")
+            reason = s.get("reason", "")
+            recommendation = s.get("recommendation", "")
+
+            if not isinstance(pattern_ids, list) or len(pattern_ids) < 2:
+                continue
+
+            cleaned_ids = []
+            for pid in pattern_ids:
+                try:
+                    cleaned_ids.append(int(pid))
+                except (TypeError, ValueError):
+                    continue
+
+            if len(cleaned_ids) < 2:
+                continue
+
+            action_text = (
+                f"Regex consolidation suggestion for pattern IDs {cleaned_ids}: "
+                f"{recommendation}. Reason: {reason}"
+            )
+            create_action(action_text=action_text, acknowledged=False)
+            created += 1
+
+        return {
+            "status": "ok",
+            "efficiency_score": score,
+            "suggestions_created": created,
+            "summary": review_result.get("summary", ""),
+            "regex_patterns_reviewed": len(regex_patterns),
+        }
+
+    except requests.ConnectionError as e:
+        return {"status": "error", "message": f"Connection failed: {e}"}
+    except requests.Timeout:
+        return {"status": "error", "message": "AI API request timed out"}
+    except Exception as e:
+        log_error(
+            logger,
+            f"[ERROR] AI regex efficiency review failed: {type(e).__name__}: {e}",
+        )
+        return {"status": "error", "message": str(e)}

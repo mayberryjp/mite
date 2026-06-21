@@ -4,9 +4,9 @@ import time
 
 from bottle import Bottle, request, response
 
+from src.api.routes_actions import setup_actions_routes
 from src.api.routes_alerts import setup_alerts_routes
 from src.api.routes_discovery import setup_discovery_routes
-from src.api.routes_hosts import setup_hosts_routes
 from src.api.routes_logs import setup_logs_routes
 from src.api.routes_rules import setup_patterns_routes
 from src.api.routes_settings import setup_settings_routes
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Register all route groups
 setup_logs_routes(app)
+setup_actions_routes(app)
 setup_alerts_routes(app)
-setup_hosts_routes(app)
 setup_patterns_routes(app)
 setup_discovery_routes(app)
 setup_settings_routes(app)

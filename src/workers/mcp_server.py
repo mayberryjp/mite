@@ -7,8 +7,11 @@ from bottle import Bottle, request, response, run
 from src.core.ai_discovery import classify_patterns
 from src.core.config import MITE_MCP_HOST, MITE_MCP_PORT, VERSION
 from src.core.db import (
+    create_action,
+    delete_action,
+    get_action_by_id,
+    get_actions,
     get_alerts,
-    get_all_hosts,
     get_all_patterns,
     get_all_settings,
     get_logs,
@@ -17,6 +20,7 @@ from src.core.db import (
     get_pending_patterns,
     get_stats,
     init_database,
+    update_action,
     update_pattern_user_override,
 )
 from src.utils.locallogging import log_error, log_info
@@ -64,6 +68,24 @@ def _as_int(value, field_name, default=None, min_value=None):
         raise ValueError(f"{field_name} must be >= {min_value}")
 
     return parsed
+
+
+def _as_bool(value, field_name):
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, int):
+        if value in (0, 1):
+            return bool(value)
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "on"):
+            return True
+        if normalized in ("false", "0", "no", "off"):
+            return False
+
+    raise ValueError(f"Invalid boolean for {field_name}")
 
 
 # ---------------------------------------------------------------------------
@@ -312,15 +334,6 @@ def list_alerts(arguments):
 
 
 @mcp_tool(
-    "list_hosts",
-    "Return all known hosts.",
-)
-def list_hosts(arguments):
-    del arguments
-    return get_all_hosts()
-
-
-@mcp_tool(
     "get_stats",
     "Return dashboard stats snapshot.",
 )
@@ -364,6 +377,158 @@ def get_pattern_logs(arguments):
         "limit": limit,
         "offset": offset,
     }
+
+
+@mcp_tool(
+    "list_actions",
+    "List actions with optional pagination and filters.",
+    {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "default": 100},
+            "offset": {"type": "integer", "default": 0},
+            "acknowledged": {"type": "boolean"},
+            "search": {"type": "string"},
+        },
+    },
+)
+def list_actions(arguments):
+    limit = _as_int(arguments.get("limit", 100), "limit", default=100, min_value=1)
+    offset = _as_int(arguments.get("offset", 0), "offset", default=0, min_value=0)
+
+    acknowledged = arguments.get("acknowledged")
+    if acknowledged is not None:
+        acknowledged = _as_bool(acknowledged, "acknowledged")
+
+    items, total = get_actions(
+        limit=limit,
+        offset=offset,
+        acknowledged=acknowledged,
+        search=arguments.get("search"),
+    )
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "acknowledged": acknowledged,
+    }
+
+
+@mcp_tool(
+    "get_action",
+    "Get a single action by id.",
+    {
+        "type": "object",
+        "properties": {
+            "action_id": {"type": "integer", "description": "Action id."}
+        },
+        "required": ["action_id"],
+    },
+)
+def get_action(arguments):
+    action_id = _as_int(arguments.get("action_id"), "action_id", min_value=1)
+    item = get_action_by_id(action_id)
+    if not item:
+        raise ValueError(f"Action not found: {action_id}")
+    return item
+
+
+@mcp_tool(
+    "create_action",
+    "Create a new action.",
+    {
+        "type": "object",
+        "properties": {
+            "action_text": {
+                "type": "string",
+                "description": "Action text.",
+            },
+            "acknowledged": {
+                "type": "boolean",
+                "description": "Whether the action is acknowledged.",
+                "default": False,
+            },
+        },
+        "required": ["action_text"],
+    },
+)
+def create_action_tool(arguments):
+    action_text = arguments.get("action_text")
+    if not isinstance(action_text, str) or not action_text.strip():
+        raise ValueError("action_text must be a non-empty string")
+
+    acknowledged = arguments.get("acknowledged", False)
+    acknowledged = _as_bool(acknowledged, "acknowledged")
+
+    action_id = create_action(action_text.strip(), acknowledged)
+    return get_action_by_id(action_id)
+
+
+@mcp_tool(
+    "update_action",
+    "Update action text and/or acknowledged flag.",
+    {
+        "type": "object",
+        "properties": {
+            "action_id": {"type": "integer", "description": "Action id."},
+            "action_text": {"type": "string", "description": "Action text."},
+            "acknowledged": {
+                "type": "boolean",
+                "description": "Whether the action is acknowledged.",
+            },
+        },
+        "required": ["action_id"],
+    },
+)
+def update_action_tool(arguments):
+    action_id = _as_int(arguments.get("action_id"), "action_id", min_value=1)
+    action_text = arguments.get("action_text") if "action_text" in arguments else None
+    acknowledged = (
+        _as_bool(arguments.get("acknowledged"), "acknowledged")
+        if "acknowledged" in arguments
+        else None
+    )
+
+    if action_text is None and acknowledged is None:
+        raise ValueError("At least one of action_text or acknowledged is required")
+
+    if action_text is not None:
+        if not isinstance(action_text, str) or not action_text.strip():
+            raise ValueError("action_text must be a non-empty string")
+        action_text = action_text.strip()
+
+    updated = update_action(
+        action_id,
+        action_text=action_text,
+        acknowledged=acknowledged,
+    )
+    if not updated:
+        if not get_action_by_id(action_id):
+            raise ValueError(f"Action not found: {action_id}")
+        raise ValueError("No valid fields provided")
+
+    return get_action_by_id(action_id)
+
+
+@mcp_tool(
+    "delete_action",
+    "Delete an action by id.",
+    {
+        "type": "object",
+        "properties": {
+            "action_id": {"type": "integer", "description": "Action id."}
+        },
+        "required": ["action_id"],
+    },
+)
+def delete_action_tool(arguments):
+    action_id = _as_int(arguments.get("action_id"), "action_id", min_value=1)
+    deleted = delete_action(action_id)
+    if not deleted:
+        raise ValueError(f"Action not found: {action_id}")
+
+    return {"status": "ok", "action_id": action_id}
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +608,9 @@ def mcp_endpoint():
         arguments = params.get("arguments", {})
 
         if tool_name not in TOOLS:
-            return json.dumps(jsonrpc_error(req_id, -32602, f"Unknown tool: {tool_name}"))
+            return json.dumps(
+                jsonrpc_error(req_id, -32602, f"Unknown tool: {tool_name}")
+            )
 
         try:
             result = TOOLS[tool_name]["function"](arguments)
@@ -460,7 +627,9 @@ def mcp_endpoint():
 
 
 def main():
-    log_info(logger, "[INFO] MCP server waiting 5 seconds for database initialization...")
+    log_info(
+        logger, "[INFO] MCP server waiting 5 seconds for database initialization..."
+    )
     time.sleep(5)
     init_database()
     log_info(logger, f"[INFO] MCP server starting on {MITE_MCP_HOST}:{MITE_MCP_PORT}")

@@ -9,7 +9,6 @@ from src.core.db import (
     disconnect_from_db,
     get_setting,
     insert_logs_batch,
-    upsert_hosts_batch,
 )
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
@@ -51,10 +50,9 @@ def _get_float_setting(key, default_value, min_value=0.1):
         return default_value
 
 
-def _flush_batch(logger, log_batch, host_batch, conn):
+def _flush_batch(logger, log_batch, conn):
     try:
         insert_logs_batch(log_batch, conn=conn)
-        upsert_hosts_batch(host_batch, conn=conn)
     except Exception as e:
         log_error(logger, f"[ERROR] TCP batch flush error: {e}")
 
@@ -64,7 +62,6 @@ def handle_tcp_client(conn_sock, addr):
     source_ip = addr[0]
     buffer = ""
     log_batch = []
-    host_batch = []
     last_flush = time.monotonic()
 
     db_conn = connect_to_db()
@@ -76,9 +73,8 @@ def handle_tcp_client(conn_sock, addr):
                 data = conn_sock.recv(BUFFER_SIZE)
             except socket.timeout:
                 if log_batch:
-                    _flush_batch(logger, log_batch, host_batch, db_conn)
+                    _flush_batch(logger, log_batch, db_conn)
                     log_batch = []
-                    host_batch = []
                     last_flush = time.monotonic()
                 continue
 
@@ -106,15 +102,12 @@ def handle_tcp_client(conn_sock, addr):
                         parsed["raw_message"],
                     )
                 )
-                host_batch.append((parsed["host"], source_ip, parsed["received_at"]))
-
                 if (
                     len(log_batch) >= BATCH_SIZE
                     or (time.monotonic() - last_flush) >= BATCH_FLUSH_INTERVAL
                 ):
-                    _flush_batch(logger, log_batch, host_batch, db_conn)
+                    _flush_batch(logger, log_batch, db_conn)
                     log_batch = []
-                    host_batch = []
                     last_flush = time.monotonic()
 
     except Exception as e:
@@ -122,7 +115,7 @@ def handle_tcp_client(conn_sock, addr):
     finally:
         # Flush remaining
         if log_batch:
-            _flush_batch(logger, log_batch, host_batch, db_conn)
+            _flush_batch(logger, log_batch, db_conn)
         conn_sock.close()
         disconnect_from_db(db_conn)
 

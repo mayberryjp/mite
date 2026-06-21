@@ -225,11 +225,10 @@ Syslog Sources → UDP/TCP Listeners → SQLite logs table (processed=0)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/health` | Health check |
-| `GET` | `/api/stats` | Dashboard statistics (total logs, alerts, hosts, patterns, DB size) |
+| `GET` | `/api/stats` | Dashboard statistics (total logs, alerts, patterns, DB size) |
 | `GET` | `/api/logs` | Paginated logs with filtering by host, IP, program, severity |
 | `GET` | `/api/logs/recent` | Poll for newly received logs |
 | `GET` | `/api/alerts` | Paginated alerts with filtering |
-| `GET` | `/api/hosts` | All known hosts with log/alert counts |
 | `GET` | `/api/patterns` | All patterns with classifications |
 | `GET` | `/api/patterns/<id>` | Single pattern details with sample message |
 | `PUT` | `/api/patterns/<id>` | Override pattern classification |
@@ -264,8 +263,7 @@ The AI worker:
 For each log linked to a critical/high pattern:
 1. Create an alert in the alerts table
 2. Optionally send Discord notification
-3. Track alert count per host
-4. Respect user overrides (if user marked pattern as "noise", skip alert)
+3. Respect user overrides (if user marked pattern as "noise", skip alert)
 
 ### Step 5: Retention
 Old logs and alerts are automatically deleted based on configurable retention periods (default: 14 days logs, 30 days alerts).
@@ -310,7 +308,6 @@ mite/
 │   │   ├── server.py                 # Main Bottle app, route setup
 │   │   ├── routes_logs.py           # Log-related endpoints
 │   │   ├── routes_alerts.py         # Alert-related endpoints
-│   │   ├── routes_hosts.py          # Host-related endpoints
 │   │   ├── routes_rules.py          # Pattern management
 │   │   ├── routes_discovery.py      # AI classification triggers
 │   │   └── routes_settings.py       # User-editable settings

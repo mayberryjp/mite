@@ -8,7 +8,6 @@ from src.core.db import (
     disconnect_from_db,
     get_setting,
     insert_logs_batch,
-    upsert_hosts_batch,
 )
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
@@ -79,7 +78,6 @@ def run_udp_listener():
     )
 
     log_batch = []
-    host_batch = []
     last_flush = time.monotonic()
 
     conn = connect_to_db()
@@ -91,9 +89,8 @@ def run_udp_listener():
             except socket.timeout:
                 # Flush whatever we have on timeout
                 if log_batch:
-                    _flush_batch(logger, log_batch, host_batch, conn)
+                    _flush_batch(logger, log_batch, conn)
                     log_batch = []
-                    host_batch = []
                     last_flush = time.monotonic()
                 continue
 
@@ -117,16 +114,13 @@ def run_udp_listener():
                     parsed["raw_message"],
                 )
             )
-            host_batch.append((parsed["host"], source_ip, parsed["received_at"]))
-
             # Flush when batch is full or interval elapsed
             if (
                 len(log_batch) >= batch_size
                 or (time.monotonic() - last_flush) >= batch_flush_interval
             ):
-                _flush_batch(logger, log_batch, host_batch, conn)
+                _flush_batch(logger, log_batch, conn)
                 log_batch = []
-                host_batch = []
                 last_flush = time.monotonic()
 
         except Exception as e:
@@ -139,10 +133,9 @@ def run_udp_listener():
             conn = connect_to_db()
 
 
-def _flush_batch(logger, log_batch, host_batch, conn):
+def _flush_batch(logger, log_batch, conn):
     try:
         insert_logs_batch(log_batch, conn=conn)
-        upsert_hosts_batch(host_batch, conn=conn)
     except Exception as e:
         log_error(logger, f"[ERROR] UDP batch flush error: {e}")
 

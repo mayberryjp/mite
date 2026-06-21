@@ -46,18 +46,15 @@ CONST_CREATE_ALERTS_SQL = """
     CREATE INDEX IF NOT EXISTS idx_alerts_pattern_id ON alerts(pattern_id);
 """
 
-CONST_CREATE_HOSTS_SQL = """
-    CREATE TABLE IF NOT EXISTS hosts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        host TEXT,
-        source_ip TEXT NOT NULL,
-        first_seen_at TEXT NOT NULL,
-        last_seen_at TEXT NOT NULL,
-        log_count INTEGER DEFAULT 0,
-        alert_count INTEGER DEFAULT 0,
-        UNIQUE(source_ip, host)
+CONST_CREATE_ACTIONS_SQL = """
+    CREATE TABLE IF NOT EXISTS actions (
+        action_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action_text TEXT,
+        acknowledged INTEGER DEFAULT 0,
+        insert_date TEXT DEFAULT (datetime('now', 'localtime'))
     );
-    CREATE INDEX IF NOT EXISTS idx_hosts_source_ip ON hosts(source_ip);
+    CREATE INDEX IF NOT EXISTS idx_actions_insert_date ON actions(insert_date);
+    CREATE INDEX IF NOT EXISTS idx_actions_acknowledged ON actions(acknowledged);
 """
 
 CONST_CREATE_PATTERNS_SQL = """
