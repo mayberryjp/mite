@@ -5,8 +5,8 @@ import time
 
 from src.core.config import MITE_DB_PATH
 from src.core.models import (
-    CONST_CREATE_AI_API_CALLS_SQL,
     CONST_CREATE_ACTIONS_SQL,
+    CONST_CREATE_AI_API_CALLS_SQL,
     CONST_CREATE_ALERTS_SQL,
     CONST_CREATE_LOGS_SQL,
     CONST_CREATE_NOISE_STATS_SQL,

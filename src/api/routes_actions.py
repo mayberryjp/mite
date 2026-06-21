@@ -140,7 +140,9 @@ def setup_actions_routes(app):
                     )
                 action_text = action_text.strip()
 
-            updated = update_action(action_id, action_text=action_text, acknowledged=acknowledged)
+            updated = update_action(
+                action_id, action_text=action_text, acknowledged=acknowledged
+            )
             if not updated:
                 if get_action_by_id(action_id) is None:
                     response.status = 404

@@ -7,8 +7,8 @@ import requests
 from src.core.config import AI_API_BASE_URL, AI_API_KEY, AI_MODEL
 from src.core.db import (
     create_action,
-    get_all_patterns,
     get_ai_api_call_count_24h,
+    get_all_patterns,
     get_setting,
     record_ai_api_call,
     set_setting,
@@ -516,7 +516,9 @@ def review_pattern_regex_efficiency():
 
     patterns, _ = get_all_patterns(limit=None, offset=0)
     regex_patterns = [
-        p for p in patterns if isinstance(p.get("match_regex"), str) and p["match_regex"].strip()
+        p
+        for p in patterns
+        if isinstance(p.get("match_regex"), str) and p["match_regex"].strip()
     ]
 
     if len(regex_patterns) < 2:

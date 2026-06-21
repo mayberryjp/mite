@@ -420,9 +420,7 @@ def list_actions(arguments):
     "Get a single action by id.",
     {
         "type": "object",
-        "properties": {
-            "action_id": {"type": "integer", "description": "Action id."}
-        },
+        "properties": {"action_id": {"type": "integer", "description": "Action id."}},
         "required": ["action_id"],
     },
 )
@@ -516,9 +514,7 @@ def update_action_tool(arguments):
     "Delete an action by id.",
     {
         "type": "object",
-        "properties": {
-            "action_id": {"type": "integer", "description": "Action id."}
-        },
+        "properties": {"action_id": {"type": "integer", "description": "Action id."}},
         "required": ["action_id"],
     },
 )
