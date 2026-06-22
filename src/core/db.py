@@ -94,7 +94,7 @@ def init_database():
         )
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("action_on_new_patterns", "false"),
+            ("action_on_new_patterns", "true"),
         )
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -102,7 +102,7 @@ def init_database():
         )
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("action_on_no_logs", "false"),
+            ("action_on_no_logs", "true"),
         )
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

@@ -173,7 +173,7 @@ def _is_setting_enabled(key, default="false", legacy_key=None):
 
 def _handle_new_pattern_side_effects(pattern_id, pattern, tokenized_message):
     action_enabled = _is_setting_enabled(
-        "action_on_new_patterns", legacy_key="action_on_new_pattern"
+        "action_on_new_patterns", default="true", legacy_key="action_on_new_pattern"
     )
     notify_enabled = _is_setting_enabled(
         "notify_on_new_patterns", legacy_key="notify_on_new_pattern"

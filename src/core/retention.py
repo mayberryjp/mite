@@ -49,7 +49,7 @@ def _handle_no_logs_previous_hour():
     if count > 0 or not hour_bucket:
         return
 
-    action_enabled = _is_setting_enabled("action_on_no_logs")
+    action_enabled = _is_setting_enabled("action_on_no_logs", default="true")
     notify_enabled = _is_setting_enabled("notify_on_no_logs")
     if not action_enabled and not notify_enabled:
         return

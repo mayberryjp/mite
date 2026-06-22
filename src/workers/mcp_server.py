@@ -37,6 +37,12 @@ MANAGED_BOOLEAN_SETTINGS = {
     "action_on_no_logs",
     "notify_on_no_logs",
 }
+MANAGED_BOOLEAN_SETTING_DEFAULTS = {
+    "action_on_new_patterns": True,
+    "notify_on_new_patterns": False,
+    "action_on_no_logs": True,
+    "notify_on_no_logs": False,
+}
 
 # ---------------------------------------------------------------------------
 # Tool registry
@@ -382,9 +388,13 @@ def get_setting_tool(arguments):
     raw_value = get_setting(key)
     return {
         "key": key,
-        "value": str(raw_value).strip().lower() in ("true", "1", "yes", "on"),
+        "value": (
+            str(raw_value).strip().lower() in ("true", "1", "yes", "on")
+            if raw_value is not None
+            else MANAGED_BOOLEAN_SETTING_DEFAULTS[key]
+        ),
         "is_custom": raw_value is not None,
-        "default": False,
+        "default": MANAGED_BOOLEAN_SETTING_DEFAULTS[key],
         "type": "bool",
     }
 

@@ -39,7 +39,7 @@ EDITABLE_SETTINGS = {
     },
     "action_on_new_patterns": {
         "description": "Create an action when a new pattern is discovered.",
-        "default": "false",
+        "default": "true",
         "type": "bool",
     },
     "notify_on_new_patterns": {
@@ -49,7 +49,7 @@ EDITABLE_SETTINGS = {
     },
     "action_on_no_logs": {
         "description": "Create an action when no logs were received in the previous hour.",
-        "default": "false",
+        "default": "true",
         "type": "bool",
     },
     "notify_on_no_logs": {
