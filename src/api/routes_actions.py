@@ -4,6 +4,7 @@ import logging
 from bottle import request, response
 
 from src.core.db import (
+    acknowledge_all_actions,
     create_action,
     delete_action,
     get_action_by_id,
@@ -32,6 +33,28 @@ def _parse_bool(value, field_name):
 
 
 def setup_actions_routes(app):
+
+    @app.route("/api/actions/acknowledge-all", method=["POST"])
+    @app.route("/api/actions/acknowledge_all", method=["POST"])
+    @app.route("/actions/acknowledge-all", method=["POST"])
+    @app.route("/actions/acknowledge_all", method=["POST"])
+    def api_acknowledge_all_actions():
+        logger = logging.getLogger(__name__)
+        try:
+            updated = acknowledge_all_actions()
+            response.content_type = "application/json"
+            log_info(logger, f"[INFO] Acknowledged all actions ({updated} updated)")
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "acknowledged": True,
+                    "updated": updated,
+                }
+            )
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to acknowledge all actions: {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
 
     @app.route("/api/actions", method=["GET"])
     def api_get_actions():

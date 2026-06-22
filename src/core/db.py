@@ -1082,6 +1082,24 @@ def delete_action(action_id):
     return execute_with_retry(_delete)
 
 
+def acknowledge_all_actions():
+    """Mark all unacknowledged actions as acknowledged. Returns affected row count."""
+
+    def _ack_all():
+        conn = connect_to_db()
+        if not conn:
+            return 0
+        try:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE actions SET acknowledged = 1 WHERE acknowledged = 0")
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            disconnect_from_db(conn)
+
+    return execute_with_retry(_ack_all)
+
+
 # --- Host operations ---
 
 
