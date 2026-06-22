@@ -9,6 +9,7 @@ from src.core.ai_discovery import (
     test_ai_connection,
 )
 from src.core.db import (
+    create_action,
     delete_logs,
     get_pattern_by_hash,
     get_pattern_by_id,
@@ -24,7 +25,7 @@ from src.core.db import (
     mark_logs_processed,
     update_alert_discord_sent,
 )
-from src.core.discord import send_alert_discord
+from src.core.discord import send_alert_discord, send_discord_message
 from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
@@ -161,6 +162,46 @@ def _truncate_for_log(text, limit=500):
     return text[:limit] + "...<truncated>"
 
 
+def _is_setting_enabled(key, default="false", legacy_key=None):
+    value = get_setting(key)
+    if value is None and legacy_key:
+        value = get_setting(legacy_key)
+    if value is None:
+        value = default
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _handle_new_pattern_side_effects(pattern_id, pattern, tokenized_message):
+    action_enabled = _is_setting_enabled(
+        "action_on_new_patterns", legacy_key="action_on_new_pattern"
+    )
+    notify_enabled = _is_setting_enabled(
+        "notify_on_new_patterns", legacy_key="notify_on_new_pattern"
+    )
+
+    if action_enabled:
+        action_name = f"pattern_{pattern_id}"
+        action_text = f"New pattern created: id={pattern_id}, name={action_name}"
+        create_action(action_text, acknowledged=False)
+
+    if notify_enabled:
+        title = (pattern or {}).get("title") or f"pattern_{pattern_id}"
+        host = (pattern or {}).get("host") or "unknown"
+        program = (pattern or {}).get("program") or "unknown"
+        classification = (pattern or {}).get("classification") or "pending"
+        content = (
+            "Mite New Pattern\n\n"
+            f"Pattern ID: {pattern_id}\n"
+            f"Title: {title}\n"
+            f"Classification: {classification}\n"
+            f"Host: {host}\n"
+            f"Program: {program}\n\n"
+            "Sample:\n"
+            f"{_truncate_for_log(tokenized_message, 800)}"
+        )
+        send_discord_message(content)
+
+
 def _pattern_regex_matches_message(pattern, message):
     """Return True when a pattern's regex is present and matches the current log message."""
     if not pattern:
@@ -262,6 +303,7 @@ def process_log(log_entry):
     regex_match_id, regex_classification = match_by_regex(tokenized_message)
     pattern = None
     pattern_id = None
+    new_pattern_created = False
 
     if regex_match_id:
         # Matched an existing pattern via regex
@@ -309,6 +351,7 @@ def process_log(log_entry):
                 timestamp=log_entry["received_at"],
             )
             pattern = get_pattern_by_id(pattern_id)
+            new_pattern_created = True
 
         if not pattern:
             log_error(
@@ -346,6 +389,9 @@ def process_log(log_entry):
                 )
                 delete_logs([log_entry["id"]])
                 return True
+
+    if new_pattern_created:
+        _handle_new_pattern_side_effects(pattern_id, pattern, tokenized_message)
 
     # Record hourly stats for this pattern
     increment_pattern_stat(pattern_id, log_entry["received_at"])

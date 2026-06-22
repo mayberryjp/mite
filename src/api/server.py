@@ -12,7 +12,7 @@ from src.api.routes_rules import setup_patterns_routes
 from src.api.routes_settings import setup_settings_routes
 from src.core.config import VERSION
 from src.core.db import get_stats
-from src.core.discord import send_discord_message
+from src.core.discord import is_discord_configured, send_discord_message
 from src.utils.locallogging import log_error, log_info
 
 CORS_HEADERS = {
@@ -109,6 +109,11 @@ if __name__ == "__main__":
     log_info(logger, "[INFO] Waiting 5 seconds for database initialization...")
     time.sleep(5)
     log_info(logger, "[INFO] Starting Mite API server...")
+
+    if is_discord_configured():
+        send_discord_message(
+            f"Mite startup complete. API server is starting. Version: {VERSION}"
+        )
 
     from waitress import serve
 

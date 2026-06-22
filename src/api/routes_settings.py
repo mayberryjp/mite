@@ -37,6 +37,26 @@ EDITABLE_SETTINGS = {
         "type": "string",
         "allow_empty": True,
     },
+    "action_on_new_patterns": {
+        "description": "Create an action when a new pattern is discovered.",
+        "default": "false",
+        "type": "bool",
+    },
+    "notify_on_new_patterns": {
+        "description": "Send a Discord notification when a new pattern is discovered.",
+        "default": "false",
+        "type": "bool",
+    },
+    "action_on_no_logs": {
+        "description": "Create an action when no logs were received in the previous hour.",
+        "default": "false",
+        "type": "bool",
+    },
+    "notify_on_no_logs": {
+        "description": "Send a Discord notification when no logs were received in the previous hour.",
+        "default": "false",
+        "type": "bool",
+    },
     "log_retention_days": {
         "description": "How many days of logs to retain before cleanup.",
         "default": "14",

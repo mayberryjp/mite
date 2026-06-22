@@ -9,6 +9,7 @@ from src.core.config import MITE_MCP_HOST, MITE_MCP_PORT, VERSION
 from src.core.db import (
     create_action,
     delete_action,
+    delete_setting,
     get_action_by_id,
     get_actions,
     get_alerts,
@@ -18,8 +19,10 @@ from src.core.db import (
     get_logs_by_pattern,
     get_pattern_by_id,
     get_pending_patterns,
+    get_setting,
     get_stats,
     init_database,
+    set_setting,
     update_action,
     update_pattern_user_override,
 )
@@ -28,6 +31,12 @@ from src.utils.locallogging import log_error, log_info
 logger = logging.getLogger(__name__)
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
+MANAGED_BOOLEAN_SETTINGS = {
+    "action_on_new_patterns",
+    "notify_on_new_patterns",
+    "action_on_no_logs",
+    "notify_on_no_logs",
+}
 
 # ---------------------------------------------------------------------------
 # Tool registry
@@ -349,6 +358,118 @@ def list_stats(arguments):
 def list_settings(arguments):
     del arguments
     return get_all_settings()
+
+
+@mcp_tool(
+    "get_setting",
+    "Get one managed runtime setting by key.",
+    {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "enum": sorted(MANAGED_BOOLEAN_SETTINGS),
+            }
+        },
+        "required": ["key"],
+    },
+)
+def get_setting_tool(arguments):
+    key = arguments.get("key")
+    if key not in MANAGED_BOOLEAN_SETTINGS:
+        raise ValueError(f"Unknown setting key: {key}")
+
+    raw_value = get_setting(key)
+    return {
+        "key": key,
+        "value": str(raw_value).strip().lower() in ("true", "1", "yes", "on"),
+        "is_custom": raw_value is not None,
+        "default": False,
+        "type": "bool",
+    }
+
+
+@mcp_tool(
+    "create_setting",
+    "Create one managed runtime setting if it does not already exist.",
+    {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "enum": sorted(MANAGED_BOOLEAN_SETTINGS),
+            },
+            "value": {
+                "type": "boolean",
+            },
+        },
+        "required": ["key", "value"],
+    },
+)
+def create_setting_tool(arguments):
+    key = arguments.get("key")
+    if key not in MANAGED_BOOLEAN_SETTINGS:
+        raise ValueError(f"Unknown setting key: {key}")
+
+    if get_setting(key) is not None:
+        raise ValueError(f"Setting already exists: {key}")
+
+    value = _as_bool(arguments.get("value"), "value")
+    set_setting(key, "true" if value else "false")
+    return {"status": "created", "key": key, "value": value}
+
+
+@mcp_tool(
+    "update_setting",
+    "Update one managed runtime setting.",
+    {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "enum": sorted(MANAGED_BOOLEAN_SETTINGS),
+            },
+            "value": {
+                "type": "boolean",
+            },
+        },
+        "required": ["key", "value"],
+    },
+)
+def update_setting_tool(arguments):
+    key = arguments.get("key")
+    if key not in MANAGED_BOOLEAN_SETTINGS:
+        raise ValueError(f"Unknown setting key: {key}")
+
+    value = _as_bool(arguments.get("value"), "value")
+    set_setting(key, "true" if value else "false")
+    return {"status": "ok", "key": key, "value": value}
+
+
+@mcp_tool(
+    "delete_setting",
+    "Delete one managed runtime setting so it falls back to default.",
+    {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "enum": sorted(MANAGED_BOOLEAN_SETTINGS),
+            }
+        },
+        "required": ["key"],
+    },
+)
+def delete_setting_tool(arguments):
+    key = arguments.get("key")
+    if key not in MANAGED_BOOLEAN_SETTINGS:
+        raise ValueError(f"Unknown setting key: {key}")
+
+    if get_setting(key) is None:
+        raise ValueError(f"Setting not found: {key}")
+
+    delete_setting(key)
+    return {"status": "ok", "key": key}
 
 
 @mcp_tool(

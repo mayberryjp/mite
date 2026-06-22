@@ -20,6 +20,10 @@ def _discord_webhook_url():
     return (value or "").strip()
 
 
+def is_discord_configured():
+    return _discord_enabled() and bool(_discord_webhook_url())
+
+
 def send_discord_message(content):
     if not _discord_enabled():
         return False

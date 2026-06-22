@@ -92,6 +92,22 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("discord_webhook_url", ""),
         )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("action_on_new_patterns", "false"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("notify_on_new_patterns", "false"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("action_on_no_logs", "false"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("notify_on_no_logs", "false"),
+        )
         # Seed retention settings if not already set
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -521,13 +537,6 @@ def insert_pattern(
                 (pattern_hash, pattern_text, sample_message, host, program, ts, ts),
             )
             pattern_id = cursor.lastrowid
-            action_name = f"pattern_{pattern_id}"
-            action_text = f"New pattern created: id={pattern_id}, name={action_name}"
-            cursor.execute(
-                """INSERT INTO actions (action_text, acknowledged)
-                   VALUES (?, 0)""",
-                (action_text,),
-            )
             conn.commit()
             return pattern_id
         finally:
