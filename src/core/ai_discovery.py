@@ -703,7 +703,9 @@ def review_pattern_regex_efficiency():
             if not isinstance(summary_obj, dict):
                 summary_obj = {}
 
-            rules_reviewed_raw = review_result.get("rules_reviewed", len(regex_patterns))
+            rules_reviewed_raw = review_result.get(
+                "rules_reviewed", len(regex_patterns)
+            )
             safe_deletions_raw = summary_obj.get("estimated_safe_deletions", 0)
 
             try:
