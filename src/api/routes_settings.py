@@ -48,12 +48,12 @@ EDITABLE_SETTINGS = {
         "type": "bool",
     },
     "action_on_no_logs": {
-        "description": "Create an action when no logs were received in the previous hour.",
+        "description": "Create an action when no logs were received in the last 24 hours.",
         "default": "true",
         "type": "bool",
     },
     "notify_on_no_logs": {
-        "description": "Send a Discord notification when no logs were received in the previous hour.",
+        "description": "Send a Discord notification when no logs were received in the last 24 hours.",
         "default": "false",
         "type": "bool",
     },

@@ -38,15 +38,12 @@ def _is_setting_enabled(key, default="false"):
     return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
 
 
-def _handle_no_logs_previous_hour():
-    hourly_stats = get_hourly_log_counts(hours=2)
-    if len(hourly_stats) < 2:
-        return
+def _handle_no_logs_last_24h():
+    from datetime import datetime
 
-    previous_hour = hourly_stats[-2]
-    hour_bucket = previous_hour.get("hour")
-    count = int(previous_hour.get("count", 0) or 0)
-    if count > 0 or not hour_bucket:
+    hourly_stats = get_hourly_log_counts(hours=24)
+    total = sum(int(b.get("count", 0) or 0) for b in hourly_stats)
+    if total > 0:
         return
 
     action_enabled = _is_setting_enabled("action_on_no_logs", default="true")
@@ -54,8 +51,9 @@ def _handle_no_logs_previous_hour():
     if not action_enabled and not notify_enabled:
         return
 
+    today = datetime.now().strftime("%Y-%m-%d")
     action_text = (
-        f"No logs received for hour bucket {hour_bucket}. "
+        f"No logs received in the last 24 hours ({today}). "
         "Check syslog sources, transport, and listener health."
     )
 
@@ -69,13 +67,13 @@ def _handle_no_logs_previous_hour():
         create_action(action_text, acknowledged=False)
         log_info(
             logger,
-            f"[INFO] Retention: created no-logs action for hour bucket {hour_bucket}",
+            "[INFO] Retention: created no-logs-24h action",
         )
 
     if notify_enabled:
         content = (
             "Mite No Logs Detected\n\n"
-            f"No logs were received during hour bucket: {hour_bucket}\n"
+            "No logs were received in the last 24 hours.\n"
             "Check syslog sources, transport, and listener health."
         )
         send_discord_message(content)
@@ -117,6 +115,6 @@ def run_retention():
         f"[INFO] Retention: deleted {deleted_noise_stats} noise stats older than 100 hours",
     )
 
-    _handle_no_logs_previous_hour()
+    _handle_no_logs_last_24h()
 
     return deleted_logs, deleted_alerts
