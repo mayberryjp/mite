@@ -521,7 +521,8 @@ def insert_pattern(
                 (pattern_hash, pattern_text, sample_message, host, program, ts, ts),
             )
             pattern_id = cursor.lastrowid
-            action_text = f"New pattern created (id={pattern_id}): {pattern_text}"
+            action_name = f"pattern_{pattern_id}"
+            action_text = f"New pattern created: id={pattern_id}, name={action_name}"
             cursor.execute(
                 """INSERT INTO actions (action_text, acknowledged)
                    VALUES (?, 0)""",
