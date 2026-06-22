@@ -1179,6 +1179,19 @@ def get_stats():
         )
         ai_api_calls_24h = cursor.fetchone()[0]
 
+        cursor.execute("SELECT COUNT(*) FROM actions WHERE acknowledged = 0")
+        unacknowledged_actions_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT value FROM settings WHERE key = ?",
+            ("ai_efficiency_score",),
+        )
+        row = cursor.fetchone()
+        try:
+            ai_efficiency_score = float(row[0]) if row and row[0] is not None else 0.0
+        except (TypeError, ValueError):
+            ai_efficiency_score = 0.0
+
         return {
             "logs_last_hour": logs_last_hour,
             "logs_last_24h": logs_last_24h,
@@ -1194,6 +1207,8 @@ def get_stats():
             "pattern_breakdown": pattern_breakdown,
             "database_size_bytes": db_size,
             "ai_api_calls_24h": ai_api_calls_24h,
+            "unacknowledged_actions_count": unacknowledged_actions_count,
+            "ai_efficiency_score": ai_efficiency_score,
         }
     finally:
         disconnect_from_db(conn)
