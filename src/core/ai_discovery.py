@@ -101,31 +101,137 @@ RULES:
 
 
 REGEX_EFFICIENCY_REVIEW_REQUIREMENTS = r"""
+You are a strict regex deduplication auditor.
 
-You are reviewing pattern regex quality for deduplication and consolidation opportunities.
+Analyze this dataset of log classification rules.
 
-Goals:
-1) Identify duplicate or very similar regex patterns that could be consolidated.
-2) Recommend concrete consolidation actions.
-3) Provide an overall efficiency score from 0 to 100, where:
-     - 100 = no meaningful duplication/similarity
-     - 0 = extreme duplication/similarity
+Input format:
 
-Response format requirements:
-- Return ONLY valid JSON object (no markdown, no prose outside JSON).
-- Exact top-level keys:
-    - "efficiency_score": number (0-100)
-    - "summary": string
-    - "suggestions": array of objects
-- Each suggestion object must include:
-    - "pattern_ids": array of integers
-    - "reason": string
-    - "recommendation": string
+IDRule NameRegex Pattern
 
-Scoring guidance:
-- Consider both exact duplicates and near-duplicates.
-- Weight high-hit patterns more heavily when estimating inefficiency.
-- Be conservative: do not over-merge patterns that represent distinct events.
+Return ONLY valid JSON. Do not include markdown, comments, explanations, or any prose outside the JSON object.
+
+Your task is narrowly limited.
+
+You are NOT redesigning the rule system.
+You are NOT grouping broad log families.
+You are NOT creating new parent rules for Docker, Wi-Fi, systemd, firewall, cron, etc.
+You are NOT trying to reduce the maximum number of rules.
+You are ONLY identifying regexes that are exact duplicates, almost exact duplicates, or obvious near-literal subset/superset overlaps.
+
+Include a candidate only if one of these is true:
+
+1. The regex strings are exactly identical.
+2. The regexes differ only by rule name.
+3. The regexes differ only by a hard-coded hostname, device name, interface name, username, container ID, veth ID, number, MAC address, IP address, or placeholder token.
+4. One regex is an obvious near-literal subset of another, with only one or two extra literal tokens.
+5. The regexes have the same ordered literal tokens and differ only by tiny wildcard placement, optional punctuation, or escaping differences.
+Exclude candidates if:
+
+1. The patterns merely belong to the same broad log family.
+2. The patterns describe different lifecycle states, such as started vs stopped, opened vs closed, accepted vs failed, connected vs disconnected, joined vs left, success vs error.
+3. Consolidating them would require a broad alternation.
+4. Consolidating them would require operational interpretation instead of regex similarity comparison.
+5. The only similarity is shared generic tokens like `error`, `failed`, `docker`, `hostapd`, `cron`, `systemd`, `firewall`, `kernel`, `service`, or `.*`.
+6. The replacement would be meaningfully broader than the existing patterns.
+7. The proposed match depends on assumptions about alerting, routing, severity, or operational meaning.
+Be strict. Prefer returning fewer high-confidence candidates over noisy recommendations.
+
+Use this exact JSON schema:
+
+{
+"analysis_type": "strict_regex_duplicate_and_near_duplicate_audit",
+"rules_reviewed": 0,
+"exact_duplicates": [
+{
+"duplicate_group_id": "ED001",
+"regex": "string",
+"rules": [
+{
+"id": 0,
+"name": "string"
+}
+],
+"recommended_action": "keep_one_delete_others",
+"recommended_survivor_id": 0,
+"safe_to_delete_rule_ids": [0],
+"reason": "string",
+"confidence": 100
+}
+],
+"near_duplicates": [
+{
+"near_duplicate_group_id": "ND001",
+"rules": [
+{
+"id": 0,
+"name": "string",
+"regex": "string",
+"role": "generic_survivor | hardcoded_variant | broader_variant | narrower_variant | peer_variant"
+}
+],
+"difference_type": "hostname_only | device_name_only | interface_only | veth_id_only | user_only | numeric_token_only | ip_or_mac_only | placeholder_only | escaping_only | wildcard_placement_only | tiny_literal_difference | near_literal_subset_superset",
+"difference_explanation": "string",
+"recommended_action": "deduplicate | keep_separate | needs_human_review",
+"recommended_survivor_rule_id": 0,
+"safe_to_delete_rule_ids": [0],
+"proposed_survivor_regex": "string or null",
+"risk": "low | medium | high",
+"risk_notes": "string",
+"confidence": 0
+}
+],
+"shadowing_or_ordering_warnings": [
+{
+"warning_id": "SW001",
+"broad_rule": {
+"id": 0,
+"name": "string",
+"regex": "string"
+},
+"possibly_shadowed_rules": [
+{
+"id": 0,
+"name": "string",
+"regex": "string"
+}
+],
+"reason": "string",
+"recommended_action": "check_rule_order | keep_specific_before_broad | delete_specific_if_label_detail_not_needed | needs_human_review",
+"risk": "low | medium | high",
+"confidence": 0
+}
+],
+"rejected_possible_matches": [
+{
+"rule_ids": [0],
+"reason_rejected": "string"
+}
+],
+"summary": {
+"exact_duplicate_groups": 0,
+"near_duplicate_groups": 0,
+"shadowing_or_ordering_warnings": 0,
+"estimated_safe_deletions": 0,
+"needs_human_review": 0,
+"notes": [
+"string"
+]
+}
+}
+
+Additional instructions:
+
+- Do not produce broad replacement regexes.
+- Do not merge lifecycle opposites such as start/stop, open/closed, connect/disconnect, join/leave, success/failure.
+- Only propose a `proposed_survivor_regex` when it is identical to an existing regex or a minimally normalized version.
+- If a broad existing regex already safely covers hard-coded variants, recommend keeping the broad existing regex and deleting only the hard-coded variants.
+- If the decision depends on rule ordering, place it in `shadowing_or_ordering_warnings`, not `near_duplicates`.
+- If unsure, place the candidate in `rejected_possible_matches` or mark it `needs_human_review`.
+- Confidence must be an integer from 0 to 100.
+- Keep the output compact but complete.
+- Return valid JSON only.
+Now analyze the dataset.
 """
 
 
@@ -540,25 +646,14 @@ def review_pattern_regex_efficiency():
 
     lines = []
     for p in regex_patterns:
-        effective = p.get("user_override") or p.get("classification") or "pending"
-        lines.append(
-            "\n".join(
-                [
-                    f"ID: {p.get('id')}",
-                    f"Title: {p.get('title') or ''}",
-                    f"Classification: {effective}",
-                    f"Hit Count: {p.get('hit_count') or 0}",
-                    f"Regex: {p.get('match_regex')}",
-                    f"Sample: {p.get('sample_message') or ''}",
-                ]
-            )
-        )
+        rule_name = p.get("title") or f"pattern_{p.get('id')}"
+        lines.append(f"{p.get('id')}\t{rule_name}\t{p.get('match_regex')}")
 
     review_prompt = (
-        "Review the following pattern regexes for duplication/similarity and consolidation opportunities.\n\n"
+        "Analyze the following dataset of regex rules.\n\n"
         + REGEX_EFFICIENCY_REVIEW_REQUIREMENTS
-        + "\n\nPatterns:\n\n"
-        + "\n---\n".join(lines)
+        + "\n\nDataset:\nID\tRule Name\tRegex Pattern\n"
+        + "\n".join(lines)
     )
 
     try:
@@ -601,11 +696,35 @@ def review_pattern_regex_efficiency():
             repaired = _repair_invalid_json_escapes(obj_match.group())
             review_result = json.loads(repaired)
 
-        score_raw = review_result.get("efficiency_score", 0)
-        try:
-            score = float(score_raw)
-        except (TypeError, ValueError):
-            score = 0.0
+        # Keep backward compatibility if model returns legacy `efficiency_score`.
+        score_raw = review_result.get("efficiency_score")
+        if score_raw is None:
+            summary_obj = review_result.get("summary")
+            if not isinstance(summary_obj, dict):
+                summary_obj = {}
+
+            rules_reviewed_raw = review_result.get("rules_reviewed", len(regex_patterns))
+            safe_deletions_raw = summary_obj.get("estimated_safe_deletions", 0)
+
+            try:
+                rules_reviewed = int(rules_reviewed_raw)
+            except (TypeError, ValueError):
+                rules_reviewed = len(regex_patterns)
+
+            try:
+                safe_deletions = int(safe_deletions_raw)
+            except (TypeError, ValueError):
+                safe_deletions = 0
+
+            if rules_reviewed <= 0:
+                score = 100.0
+            else:
+                score = 100.0 - ((safe_deletions / rules_reviewed) * 100.0)
+        else:
+            try:
+                score = float(score_raw)
+            except (TypeError, ValueError):
+                score = 0.0
 
         if score < 0:
             score = 0.0
@@ -614,11 +733,79 @@ def review_pattern_regex_efficiency():
 
         set_setting("ai_efficiency_score", f"{score:.2f}")
 
+        exact_duplicates = review_result.get("exact_duplicates")
+        if not isinstance(exact_duplicates, list):
+            exact_duplicates = []
+
+        near_duplicates = review_result.get("near_duplicates")
+        if not isinstance(near_duplicates, list):
+            near_duplicates = []
+
+        # Backward compatibility with previous schema.
         suggestions = review_result.get("suggestions")
         if not isinstance(suggestions, list):
             suggestions = []
 
         created = 0
+
+        for group in exact_duplicates:
+            if not isinstance(group, dict):
+                continue
+
+            survivor = group.get("recommended_survivor_id")
+            delete_ids = group.get("safe_to_delete_rule_ids") or []
+            if not isinstance(delete_ids, list):
+                delete_ids = []
+
+            cleaned_delete_ids = []
+            for pid in delete_ids:
+                try:
+                    cleaned_delete_ids.append(int(pid))
+                except (TypeError, ValueError):
+                    continue
+
+            if not cleaned_delete_ids:
+                continue
+
+            action_text = (
+                f"Regex exact duplicate suggestion: keep pattern {survivor}, "
+                f"consider deleting {cleaned_delete_ids}. Reason: {group.get('reason', '')}"
+            )
+            create_action(action_text=action_text, acknowledged=False)
+            created += 1
+
+        for group in near_duplicates:
+            if not isinstance(group, dict):
+                continue
+
+            recommended_action = group.get("recommended_action")
+            if recommended_action not in ("deduplicate", "needs_human_review"):
+                continue
+
+            rules = group.get("rules") or []
+            if not isinstance(rules, list):
+                rules = []
+
+            rule_ids = []
+            for r in rules:
+                if not isinstance(r, dict):
+                    continue
+                try:
+                    rule_ids.append(int(r.get("id")))
+                except (TypeError, ValueError):
+                    continue
+
+            if len(rule_ids) < 2:
+                continue
+
+            action_text = (
+                f"Regex near-duplicate suggestion for pattern IDs {rule_ids}: "
+                f"action={recommended_action}, difference_type={group.get('difference_type', '')}, "
+                f"reason={group.get('difference_explanation', '')}"
+            )
+            create_action(action_text=action_text, acknowledged=False)
+            created += 1
+
         for s in suggestions:
             if not isinstance(s, dict):
                 continue
