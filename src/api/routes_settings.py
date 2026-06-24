@@ -157,6 +157,11 @@ EDITABLE_SETTINGS = {
         "default": "false",
         "type": "bool",
     },
+    "log_ai_requests": {
+        "description": "Log every AI request (full request and full response) to its own file under the airequests folder when enabled.",
+        "default": "false",
+        "type": "bool",
+    },
 }
 
 READ_ONLY_SETTINGS = {

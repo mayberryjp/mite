@@ -15,6 +15,7 @@ from src.core.db import (
     update_pattern_classification,
 )
 from src.core.models import DEFAULT_AI_PROMPT_TEMPLATE
+from src.core.ai_request_log import log_ai_request
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
@@ -493,12 +494,25 @@ def classify_patterns(patterns):
             ],
         }
 
+        endpoint = f"{AI_API_BASE_URL.rstrip('/')}/chat/completions"
+        request_log = {
+            "url": endpoint,
+            "method": "POST",
+            "headers": {
+                "Authorization": "Bearer ***REDACTED***",
+                "Content-Type": "application/json",
+            },
+            "body": payload,
+        }
+
         resp = requests.post(
-            f"{AI_API_BASE_URL.rstrip('/')}/chat/completions",
+            endpoint,
             headers=headers,
             json=payload,
             timeout=120,
         )
+
+        log_ai_request("classification", request_log, resp.status_code, resp.text)
 
         if resp.status_code != 200:
             error_body = resp.text[:500]
@@ -666,11 +680,26 @@ def review_pattern_regex_efficiency():
             "messages": [{"role": "user", "content": review_prompt}],
         }
 
+        endpoint = f"{AI_API_BASE_URL.rstrip('/')}/chat/completions"
+        request_log = {
+            "url": endpoint,
+            "method": "POST",
+            "headers": {
+                "Authorization": "Bearer ***REDACTED***",
+                "Content-Type": "application/json",
+            },
+            "body": payload,
+        }
+
         resp = requests.post(
-            f"{AI_API_BASE_URL.rstrip('/')}/chat/completions",
+            endpoint,
             headers=headers,
             json=payload,
             timeout=120,
+        )
+
+        log_ai_request(
+            "regex_efficiency_review", request_log, resp.status_code, resp.text
         )
 
         if resp.status_code != 200:

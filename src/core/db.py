@@ -200,6 +200,10 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("write_syslog_log", "false"),
         )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("log_ai_requests", "false"),
+        )
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:
