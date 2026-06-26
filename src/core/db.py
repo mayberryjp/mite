@@ -1389,6 +1389,29 @@ def delete_logs(log_ids):
     execute_with_retry(_delete)
 
 
+def delete_logs_for_noise_patterns():
+    """Delete all logs associated with patterns marked as noise. Returns count deleted."""
+    def _delete():
+        conn = connect_to_db()
+        if not conn:
+            return 0
+        try:
+            cursor = conn.cursor()
+            # Delete logs whose pattern_id has user_override = 'noise'
+            cursor.execute(
+                """DELETE FROM logs WHERE pattern_id IN (
+                   SELECT id FROM patterns WHERE user_override = 'noise'
+                )"""
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+        finally:
+            disconnect_from_db(conn)
+    
+    return execute_with_retry(_delete) or 0
+
+
 def delete_old_logs(days):
     conn = connect_to_db()
     if not conn:

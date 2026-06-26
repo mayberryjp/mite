@@ -5,6 +5,7 @@ from bottle import request, response
 
 from src.core.db import (
     delete_all_logs,
+    delete_logs_for_noise_patterns,
     get_hourly_log_counts,
     get_hourly_noise_counts,
     get_logs,
@@ -103,5 +104,18 @@ def setup_logs_routes(app):
             return json.dumps({"hours": hours, "stats": stats})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to get hourly noise counts: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/logs/cleanup-noise", method=["POST"])
+    def api_cleanup_noise_logs():
+        logger = logging.getLogger(__name__)
+        try:
+            deleted = delete_logs_for_noise_patterns()
+            log_info(logger, f"[INFO] Deleted {deleted} logs marked as noise")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "deleted": deleted})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to cleanup noise logs: {e}")
             response.status = 500
             return {"error": str(e)}
