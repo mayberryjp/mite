@@ -6,7 +6,7 @@ from bottle import request, response
 
 from src.core.db import (
     delete_all_patterns,
-    delete_logs,
+    delete_logs_by_pattern_id,
     delete_old_patterns,
     delete_pattern,
     get_all_pattern_stats,
@@ -128,11 +128,8 @@ def setup_patterns_routes(app):
                 
                 # If marked as noise, delete all associated logs
                 if user_override == "noise":
-                    logs, _ = get_logs_by_pattern(pattern_id, limit=99999, offset=0)
-                    if logs:
-                        log_ids = [log["id"] for log in logs]
-                        delete_logs(log_ids)
-                        log_info(logger, f"[INFO] Deleted {len(log_ids)} logs for pattern {pattern_id} marked as noise")
+                    deleted = delete_logs_by_pattern_id(pattern_id)
+                    log_info(logger, f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise")
 
             log_info(logger, f"[INFO] Pattern {pattern_id} updated")
             response.content_type = "application/json"

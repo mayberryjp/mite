@@ -1389,6 +1389,24 @@ def delete_logs(log_ids):
     execute_with_retry(_delete)
 
 
+def delete_logs_by_pattern_id(pattern_id):
+    """Delete all logs associated with a specific pattern. Returns count deleted."""
+    def _delete():
+        conn = connect_to_db()
+        if not conn:
+            return 0
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM logs WHERE pattern_id = ?", (pattern_id,))
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+        finally:
+            disconnect_from_db(conn)
+
+    return execute_with_retry(_delete) or 0
+
+
 def delete_logs_for_noise_patterns():
     """Delete all logs associated with patterns marked as noise. Returns count deleted."""
     def _delete():
