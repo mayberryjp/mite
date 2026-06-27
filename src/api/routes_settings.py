@@ -167,6 +167,22 @@ EDITABLE_SETTINGS = {
         "default": "false",
         "type": "bool",
     },
+    "syslog_forward_enabled": {
+        "description": "Enable forwarding of syslog messages to another destination via UDP.",
+        "default": "false",
+        "type": "bool",
+    },
+    "syslog_forward_destination": {
+        "description": "Destination for syslog forwarding in format 'host:port' (e.g., '192.168.1.10:514'). Only used when syslog_forward_enabled is true.",
+        "default": "",
+        "type": "string",
+        "allow_empty": True,
+    },
+    "syslog_forward_min_classification": {
+        "description": "Minimum log classification level to forward: 'noise', 'low', 'medium', 'high', or 'critical'. Only logs at this level or higher will be forwarded. Only used when syslog_forward_enabled is true.",
+        "default": "low",
+        "type": "syslog_classification",
+    },
 }
 
 READ_ONLY_SETTINGS = {
@@ -270,6 +286,17 @@ def _normalize_setting_value(key, value):
 
         return json.dumps(pairs)
 
+    if meta["type"] == "syslog_classification":
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
+        normalized = value.strip().lower()
+        valid_classifications = ["noise", "low", "medium", "high", "critical"]
+        if normalized not in valid_classifications:
+            raise ValueError(
+                f"value must be one of: {', '.join(valid_classifications)}"
+            )
+        return normalized
+
     raise ValueError("unsupported setting type")
 
 
@@ -298,6 +325,9 @@ def _typed_setting_value(key, raw_value):
             return json.loads(raw_value)
         except (json.JSONDecodeError, TypeError):
             return raw_value
+
+    if meta["type"] == "syslog_classification":
+        return str(raw_value).strip().lower()
 
     return raw_value
 

@@ -208,6 +208,19 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("log_ai_requests", "false"),
         )
+        # Seed syslog forwarding settings if not already set
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("syslog_forward_enabled", "false"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("syslog_forward_destination", ""),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("syslog_forward_min_classification", "low"),
+        )
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
     except sqlite3.Error as e:
@@ -1395,6 +1408,7 @@ def delete_logs(log_ids):
 
 def delete_logs_by_pattern_id(pattern_id):
     """Delete all logs associated with a specific pattern. Returns count deleted."""
+
     def _delete():
         conn = connect_to_db()
         if not conn:
@@ -1413,6 +1427,7 @@ def delete_logs_by_pattern_id(pattern_id):
 
 def delete_logs_for_noise_patterns():
     """Delete all logs associated with patterns marked as noise. Returns count deleted."""
+
     def _delete():
         conn = connect_to_db()
         if not conn:
@@ -1420,11 +1435,9 @@ def delete_logs_for_noise_patterns():
         try:
             cursor = conn.cursor()
             # Delete logs whose pattern_id has user_override = 'noise'
-            cursor.execute(
-                """DELETE FROM logs WHERE pattern_id IN (
+            cursor.execute("""DELETE FROM logs WHERE pattern_id IN (
                    SELECT id FROM patterns WHERE user_override = 'noise'
-                )"""
-            )
+                )""")
             deleted = cursor.rowcount
             conn.commit()
             return deleted

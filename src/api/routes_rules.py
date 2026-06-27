@@ -143,7 +143,10 @@ def setup_patterns_routes(app):
                         )
                     else:
                         deleted = delete_logs_by_pattern_id(pattern_id)
-                        log_info(logger, f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise")
+                        log_info(
+                            logger,
+                            f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise",
+                        )
 
             log_info(logger, f"[INFO] Pattern {pattern_id} updated")
             response.content_type = "application/json"

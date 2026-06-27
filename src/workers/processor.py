@@ -27,6 +27,7 @@ from src.core.db import (
 )
 from src.core.discord import send_alert_discord, send_discord_message
 from src.core.pattern_extractor import extract_pattern, hash_pattern
+from src.core.syslog_forwarder import forward_log_to_syslog
 from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,9 @@ PROCESS_FETCH_LIMIT_DEFAULT = 100
 PROCESS_FETCH_LIMIT = PROCESS_FETCH_LIMIT_DEFAULT
 REGEX_CACHE_TTL_DEFAULT = 60
 MAX_AI_REGEX_ATTEMPTS = 3
+SYSLOG_FORWARD_ENABLED = False
+SYSLOG_FORWARD_DESTINATION = ""
+SYSLOG_FORWARD_MIN_CLASSIFICATION = "low"
 
 
 def _load_min_message_length_setting():
@@ -56,6 +60,28 @@ def _load_min_message_length_setting():
         log_error(
             logger,
             f"[ERROR] Invalid min_message_length setting '{raw_value}', using default {MIN_MESSAGE_LENGTH_DEFAULT}",
+        )
+
+
+def _load_syslog_forwarding_settings():
+    """Load syslog forwarding settings from the database."""
+    global SYSLOG_FORWARD_ENABLED, SYSLOG_FORWARD_DESTINATION, SYSLOG_FORWARD_MIN_CLASSIFICATION
+    
+    # Load enabled flag
+    enabled_str = get_setting("syslog_forward_enabled", "false")
+    SYSLOG_FORWARD_ENABLED = str(enabled_str).strip().lower() in ("true", "1", "yes", "on")
+    
+    # Load destination
+    SYSLOG_FORWARD_DESTINATION = (get_setting("syslog_forward_destination", "") or "").strip()
+    
+    # Load minimum classification level
+    min_class = get_setting("syslog_forward_min_classification", "low") or "low"
+    SYSLOG_FORWARD_MIN_CLASSIFICATION = str(min_class).strip().lower()
+    
+    if SYSLOG_FORWARD_ENABLED and SYSLOG_FORWARD_DESTINATION:
+        log_info(
+            logger,
+            f"[INFO] Syslog forwarding enabled: destination={SYSLOG_FORWARD_DESTINATION}, min_classification={SYSLOG_FORWARD_MIN_CLASSIFICATION}",
         )
 
 
@@ -109,6 +135,7 @@ def _load_runtime_settings():
     REGEX_CACHE_TTL = _read_runtime_int(
         "regex_cache_ttl_seconds", REGEX_CACHE_TTL_DEFAULT
     )
+    _load_syslog_forwarding_settings()
 
 
 def _refresh_regex_cache():
@@ -438,6 +465,15 @@ def process_log(log_entry):
             )
             if success:
                 update_alert_discord_sent(alert_id)
+
+    # Forward log if syslog forwarding is enabled
+    if SYSLOG_FORWARD_ENABLED and SYSLOG_FORWARD_DESTINATION:
+        forward_log_to_syslog(
+            message=log_entry.get("raw_message") or message,
+            destination_str=SYSLOG_FORWARD_DESTINATION,
+            log_classification=effective,
+            min_classification=SYSLOG_FORWARD_MIN_CLASSIFICATION,
+        )
 
     # Mark log as processed with pattern link
     mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)

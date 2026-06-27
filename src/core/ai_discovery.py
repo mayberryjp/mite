@@ -4,6 +4,7 @@ import re
 
 import requests
 
+from src.core.ai_request_log import log_ai_request
 from src.core.config import AI_API_BASE_URL, AI_API_KEY, AI_MODEL
 from src.core.db import (
     create_action,
@@ -15,7 +16,6 @@ from src.core.db import (
     update_pattern_classification,
 )
 from src.core.models import DEFAULT_AI_PROMPT_TEMPLATE
-from src.core.ai_request_log import log_ai_request
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
