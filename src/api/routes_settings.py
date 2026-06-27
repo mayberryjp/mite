@@ -69,6 +69,11 @@ EDITABLE_SETTINGS = {
         "type": "int",
         "min": 1,
     },
+    "save_noise_logs": {
+        "description": "Persist logs tied to noise-classified patterns instead of deleting them. Applies both to incoming logs matched to noise patterns and to logs retained when a pattern is reclassified as noise.",
+        "default": "true",
+        "type": "bool",
+    },
     "ai_api_daily_rate_limit": {
         "description": "Maximum number of AI API classification calls allowed in a rolling 24-hour window.",
         "default": "500",

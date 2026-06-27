@@ -15,6 +15,7 @@ from src.core.db import (
     get_logs_by_pattern,
     get_pattern_by_id,
     get_pattern_stats,
+    get_setting,
     move_low_patterns_to_noise,
     update_pattern_ai_explanation,
     update_pattern_regex,
@@ -24,6 +25,13 @@ from src.core.db import (
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
+
+
+def _save_noise_logs_enabled():
+    value = get_setting("save_noise_logs")
+    if value is None:
+        value = "false"
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
 def setup_patterns_routes(app):
@@ -125,11 +133,17 @@ def setup_patterns_routes(app):
 
             if "classification" in data:
                 update_pattern_user_override(pattern_id, user_override)
-                
-                # If marked as noise, delete all associated logs
+
+                # If marked as noise, delete associated logs unless retention is enabled
                 if user_override == "noise":
-                    deleted = delete_logs_by_pattern_id(pattern_id)
-                    log_info(logger, f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise")
+                    if _save_noise_logs_enabled():
+                        log_info(
+                            logger,
+                            f"[INFO] Pattern {pattern_id} marked as noise; retaining logs (save_noise_logs enabled)",
+                        )
+                    else:
+                        deleted = delete_logs_by_pattern_id(pattern_id)
+                        log_info(logger, f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise")
 
             log_info(logger, f"[INFO] Pattern {pattern_id} updated")
             response.content_type = "application/json"

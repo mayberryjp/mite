@@ -312,7 +312,10 @@ def process_log(log_entry):
         if regex_classification == "noise":
             increment_pattern_stat(pattern_id, log_entry["received_at"])
             increment_noise_stat(log_entry["received_at"])
-            delete_logs([log_entry["id"]])
+            if _is_setting_enabled("save_noise_logs"):
+                mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
+            else:
+                delete_logs([log_entry["id"]])
             return True
         pattern = get_pattern_by_id(pattern_id)
         if not pattern:
@@ -401,7 +404,10 @@ def process_log(log_entry):
 
     if effective == "noise":
         increment_noise_stat(log_entry["received_at"])
-        delete_logs([log_entry["id"]])
+        if _is_setting_enabled("save_noise_logs"):
+            mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
+        else:
+            delete_logs([log_entry["id"]])
         return True
 
     # Persist inbound non-noise syslogs when explicitly enabled.
