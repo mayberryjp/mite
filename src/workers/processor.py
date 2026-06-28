@@ -8,6 +8,12 @@ from src.core.ai_discovery import (
     preprocess_sample_for_ai,
     test_ai_connection,
 )
+from src.core.constants import (
+    DEFAULT_PROCESSOR_FETCH_LIMIT,
+    DEFAULT_PROCESSOR_INTERVAL_SECONDS,
+)
+from src.core.constants import MAX_AI_REGEX_ATTEMPTS as MAX_AI_REGEX_ATTEMPTS_CONST
+from src.core.constants import MIN_MESSAGE_LENGTH
 from src.core.db import (
     create_action,
     delete_logs,
@@ -30,13 +36,6 @@ from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.core.syslog_forwarder import forward_log_to_syslog
 from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
-from src.core.constants import (
-    MIN_MESSAGE_LENGTH,
-    DEFAULT_PROCESSOR_INTERVAL_SECONDS,
-    DEFAULT_PROCESSOR_FETCH_LIMIT,
-    MAX_AI_REGEX_ATTEMPTS as MAX_AI_REGEX_ATTEMPTS_CONST,
-)
-
 logger = logging.getLogger(__name__)
 
 # Import constants and set up initial module variables
@@ -51,6 +50,8 @@ MAX_AI_REGEX_ATTEMPTS = MAX_AI_REGEX_ATTEMPTS_CONST
 SYSLOG_FORWARD_ENABLED = False
 SYSLOG_FORWARD_DESTINATION = ""
 SYSLOG_FORWARD_MIN_CLASSIFICATION = "low"
+
+
 def _load_min_message_length_setting():
     """Load minimum message length from settings table with a safe fallback."""
     global MIN_MESSAGE_LENGTH

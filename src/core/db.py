@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sqlite3
@@ -45,9 +46,104 @@ def disconnect_from_db(conn):
         log_error(logger, f"[ERROR] Error closing database connection: {e}")
 
 
+def _seed_patterns_from_import_file(cursor):
+    """Seed the patterns table from patterns_import.json in the data folder.
+
+    Intended for a fresh install (no pre-existing database). The file must use
+    the same structure produced by the export endpoint (a top-level object with
+    a "patterns" list). A missing file is a no-op. Errors are logged and
+    swallowed so a malformed file never blocks database initialization. Existing
+    rows are preserved via INSERT OR IGNORE on the unique pattern_hash. Returns
+    the number of patterns inserted.
+    """
+    logger = logging.getLogger(__name__)
+    import_path = os.path.join(
+        os.path.dirname(MITE_DB_PATH) or ".", "patterns_import.json"
+    )
+    if not os.path.exists(import_path):
+        return 0
+
+    try:
+        with open(import_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        log_error(logger, f"[ERROR] Failed to read {import_path}: {e}")
+        return 0
+
+    if isinstance(data, dict):
+        patterns = data.get("patterns", [])
+    elif isinstance(data, list):
+        patterns = data
+    else:
+        patterns = []
+
+    if not isinstance(patterns, list):
+        log_error(
+            logger,
+            f"[ERROR] {import_path}: 'patterns' must be a list; skipping seed",
+        )
+        return 0
+
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    inserted = 0
+    skipped = 0
+    for p in patterns:
+        if not isinstance(p, dict):
+            skipped += 1
+            continue
+        pattern_hash = p.get("pattern_hash")
+        pattern_text = p.get("pattern_text")
+        sample_message = p.get("sample_message")
+        if not pattern_hash or pattern_text is None or sample_message is None:
+            skipped += 1
+            continue
+        try:
+            hit_count = int(p.get("hit_count", 0) or 0)
+        except (TypeError, ValueError):
+            hit_count = 0
+        try:
+            cursor.execute(
+                """INSERT OR IGNORE INTO patterns
+                   (pattern_hash, pattern_text, sample_message, classification,
+                    ai_explanation, user_override, match_regex, title, host,
+                    program, hit_count, first_seen_at, last_seen_at,
+                    filter_at_listener)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    pattern_hash,
+                    pattern_text,
+                    sample_message,
+                    p.get("classification") or "pending",
+                    p.get("ai_explanation"),
+                    p.get("user_override"),
+                    p.get("match_regex"),
+                    p.get("title"),
+                    p.get("host"),
+                    p.get("program"),
+                    hit_count,
+                    p.get("first_seen_at") or now_str,
+                    p.get("last_seen_at") or now_str,
+                    1 if p.get("filter_at_listener") else 0,
+                ),
+            )
+            if cursor.rowcount > 0:
+                inserted += cursor.rowcount
+        except sqlite3.Error as e:
+            skipped += 1
+            log_error(logger, f"[ERROR] Failed to seed pattern {pattern_hash}: {e}")
+
+    log_info(
+        logger,
+        f"[INFO] Seeded {inserted} patterns from {import_path} "
+        f"({skipped} skipped of {len(patterns)} in file)",
+    )
+    return inserted
+
+
 def init_database():
     logger = logging.getLogger(__name__)
     conn = None
+    db_existed = os.path.exists(MITE_DB_PATH)
     try:
         conn = sqlite3.connect(MITE_DB_PATH)
         conn.execute("PRAGMA busy_timeout = 10000")
@@ -65,6 +161,10 @@ def init_database():
         ]:
             cursor.executescript(sql)
         cursor.execute("PRAGMA journal_mode=WAL;")
+        # On a fresh install (no pre-existing DB), optionally seed patterns
+        # from a patterns_import.json file in the data folder.
+        if not db_existed:
+            _seed_patterns_from_import_file(cursor)
         # Seed defaults only when rows do not already exist.
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

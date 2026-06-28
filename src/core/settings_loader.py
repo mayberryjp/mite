@@ -14,12 +14,12 @@ from src.utils.locallogging import log_error
 
 def get_int_setting(key, default_value, min_value=1):
     """Load an integer setting from the database with validation.
-    
+
     Args:
         key: Setting key in the database.
         default_value: Default value if key not found or invalid.
         min_value: Minimum acceptable value (default 1).
-        
+
     Returns:
         Parsed integer value, or default_value if invalid.
     """
@@ -39,12 +39,12 @@ def get_int_setting(key, default_value, min_value=1):
 
 def get_float_setting(key, default_value, min_value=0.1):
     """Load a float setting from the database with validation.
-    
+
     Args:
         key: Setting key in the database.
         default_value: Default value if key not found or invalid.
         min_value: Minimum acceptable value (default 0.1).
-        
+
     Returns:
         Parsed float value, or default_value if invalid.
     """

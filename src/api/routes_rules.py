@@ -1,9 +1,12 @@
 import json
 import logging
+import os
 import re
+from datetime import datetime
 
 from bottle import request, response
 
+from src.core.config import MITE_DB_PATH, VERSION
 from src.core.db import (
     delete_all_patterns,
     delete_logs_by_pattern_id,
@@ -34,6 +37,43 @@ def _save_noise_logs_enabled():
     if value is None:
         value = "false"
     return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def export_patterns_to_file(data_dir=None):
+    """Dump all patterns to a timestamped JSON file in the data folder.
+
+    Writes patterns_YYYYMMDDHHMM.json containing a structured, re-importable
+    payload (export_version, exported_at, mite_version, count, patterns).
+    Counter fields (hit_count) are written as 0 so imported patterns start
+    fresh; the live database is not modified. Returns a dict with the
+    filename, absolute path, and pattern count.
+    """
+    if data_dir is None:
+        data_dir = os.path.dirname(MITE_DB_PATH) or "."
+    os.makedirs(data_dir, exist_ok=True)
+
+    patterns, _ = get_all_patterns(limit=None)
+
+    # Export counters as 0 so imported patterns start fresh (does not touch the DB).
+    for pattern in patterns:
+        pattern["hit_count"] = 0
+
+    now = datetime.now()
+    filename = f"patterns_{now.strftime('%Y%m%d%H%M')}.json"
+    file_path = os.path.join(data_dir, filename)
+
+    payload = {
+        "export_version": 1,
+        "exported_at": now.isoformat(timespec="seconds"),
+        "mite_version": VERSION,
+        "count": len(patterns),
+        "patterns": patterns,
+    }
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    return {"filename": filename, "path": file_path, "count": len(patterns)}
 
 
 def setup_patterns_routes(app):
@@ -204,6 +244,22 @@ def setup_patterns_routes(app):
             log_error(logger, f"[ERROR] Failed to delete all patterns: {e}")
             response.status = 500
             return {"error": str(e)}
+
+    @app.route("/api/patterns/export", method=["POST"])
+    def api_export_patterns():
+        logger = logging.getLogger(__name__)
+        try:
+            result = export_patterns_to_file()
+            log_info(
+                logger,
+                f"[INFO] Exported {result['count']} patterns to {result['path']}",
+            )
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", **result})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to export patterns: {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
 
     @app.route("/api/patterns/actions/reset-hit-counts", method=["POST"])
     def api_reset_all_pattern_hit_counts():

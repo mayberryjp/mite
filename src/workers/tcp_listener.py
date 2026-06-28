@@ -6,20 +6,19 @@ import time
 
 from src.core.config import MITE_SYSLOG_TCP_HOST, MITE_SYSLOG_TCP_PORT
 from src.core.constants import (
-    SYSLOG_BUFFER_SIZE,
-    DEFAULT_TCP_BATCH_SIZE,
     DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS,
-    SYSLOG_TCP_LISTEN_BACKLOG,
+    DEFAULT_TCP_BATCH_SIZE,
     FILTER_CACHE_TTL_SECONDS,
+    SYSLOG_BUFFER_SIZE,
+    SYSLOG_TCP_LISTEN_BACKLOG,
 )
 from src.core.db import (
     connect_to_db,
     disconnect_from_db,
     get_filter_patterns,
-    get_setting,
     insert_logs_batch,
 )
-from src.core.settings_loader import get_int_setting, get_float_setting
+from src.core.settings_loader import get_float_setting, get_int_setting
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
 
