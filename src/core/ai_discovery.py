@@ -141,6 +141,16 @@ Exclude candidates if:
 7. The proposed match depends on assumptions about alerting, routing, severity, or operational meaning.
 Be strict. Prefer returning fewer high-confidence candidates over noisy recommendations.
 
+Group integrity rules (these exist to prevent fabricated or hallucinated duplicates — follow them exactly):
+
+1. A rule is NEVER a duplicate of itself. Every group (exact or near) MUST contain at least two DIFFERENT rule IDs.
+2. Never list the same `id` more than once inside a single group, and never repeat a rule object. If you can only find one matching rule, there is no duplicate — do not emit a group.
+3. Only reference rules whose `id` AND `regex` both literally appear in the input dataset. Never invent a rule, never echo or copy a rule a second time to manufacture a pair, and never pad a group to reach two members.
+4. `recommended_survivor_id` / `recommended_survivor_rule_id` MUST be one of that group's IDs and MUST NOT also appear in `safe_to_delete_rule_ids`.
+5. `safe_to_delete_rule_ids` MUST be a subset of that group's IDs, MUST exclude the survivor, and MUST contain only distinct IDs.
+6. Before emitting an `exact_duplicates` group, verify the regex strings of the members are character-for-character identical in the input. If they are not byte-identical, it is NOT an exact duplicate — consider it for `near_duplicates` or reject it.
+7. The number of distinct IDs in `rules` must equal the number of members you actually found. Do not claim a duplicate you cannot point to two distinct input rows for.
+
 Use this exact JSON schema:
 
 {
@@ -234,6 +244,7 @@ Additional instructions:
 - If unsure, place the candidate in `rejected_possible_matches` or mark it `needs_human_review`.
 - Confidence must be an integer from 0 to 100.
 - Every rule ID you emit (in `rules[].id`, `recommended_survivor_id`, `recommended_survivor_rule_id`, `safe_to_delete_rule_ids`, `rule_ids`, `broad_rule.id`, `possibly_shadowed_rules[].id`, etc.) MUST be copied verbatim from the `id` field of the input rule objects. Never use array positions, never renumber starting from 0 or 1, and never invent IDs. The `0` values shown in the schema above are placeholders only.
+- Each input rule ID is unique and appears exactly once in the dataset. If you believe two rules are duplicates, they MUST have two different IDs. The same ID appearing twice in your output is always a mistake — remove it.
 - Keep the output compact but complete.
 - Return valid JSON only.
 Now analyze the dataset.
