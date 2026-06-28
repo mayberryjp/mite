@@ -66,18 +66,18 @@ def _load_min_message_length_setting():
 def _load_syslog_forwarding_settings():
     """Load syslog forwarding settings from the database."""
     global SYSLOG_FORWARD_ENABLED, SYSLOG_FORWARD_DESTINATION, SYSLOG_FORWARD_MIN_CLASSIFICATION
-    
+
     # Load enabled flag
     enabled_str = get_setting("syslog_forward_enabled", "false")
     SYSLOG_FORWARD_ENABLED = str(enabled_str).strip().lower() in ("true", "1", "yes", "on")
-    
+
     # Load destination
     SYSLOG_FORWARD_DESTINATION = (get_setting("syslog_forward_destination", "") or "").strip()
-    
+
     # Load minimum classification level
     min_class = get_setting("syslog_forward_min_classification", "low") or "low"
     SYSLOG_FORWARD_MIN_CLASSIFICATION = str(min_class).strip().lower()
-    
+
     if SYSLOG_FORWARD_ENABLED and SYSLOG_FORWARD_DESTINATION:
         log_info(
             logger,

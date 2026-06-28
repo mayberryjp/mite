@@ -126,7 +126,7 @@ def run_udp_listener():
     last_flush = time.monotonic()
 
     conn = connect_to_db()
-    
+
     # Load filter patterns
     _refresh_filter_cache()
     last_filter_refresh = time.monotonic()
@@ -154,11 +154,11 @@ def run_udp_listener():
                 continue
 
             parsed = parse_syslog_message(raw_line, source_ip=source_ip)
-            
+
             # Check if message matches any filter pattern
             if _should_filter_message(parsed["message"]):
                 continue
-            
+
             log_batch.append(
                 (
                     parsed["received_at"],

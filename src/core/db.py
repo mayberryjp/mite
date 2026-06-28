@@ -64,12 +64,6 @@ def init_database():
             CONST_CREATE_SETTINGS_SQL,
         ]:
             cursor.executescript(sql)
-        # Migration: Add filter_at_processor column if it doesn't exist
-        cursor.execute("PRAGMA table_info(patterns)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "filter_at_listener" not in columns:
-            cursor.execute("ALTER TABLE patterns ADD COLUMN filter_at_listener INTEGER DEFAULT 0")
-            log_info(logger, "[INFO] Added filter_at_listener column to patterns table")
         cursor.execute("PRAGMA journal_mode=WAL;")
         # Seed defaults only when rows do not already exist.
         cursor.execute(

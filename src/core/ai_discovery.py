@@ -108,7 +108,10 @@ Analyze this dataset of log classification rules.
 
 Input format:
 
-IDRule NameRegex Pattern
+A JSON array of rule objects. Each object has these fields:
+- "id": the integer rule ID. This is the canonical identifier of the rule. Use this exact value whenever you refer to the rule in your output.
+- "name": the rule name.
+- "regex": the regex pattern.
 
 Return ONLY valid JSON. Do not include markdown, comments, explanations, or any prose outside the JSON object.
 
@@ -230,6 +233,7 @@ Additional instructions:
 - If the decision depends on rule ordering, place it in `shadowing_or_ordering_warnings`, not `near_duplicates`.
 - If unsure, place the candidate in `rejected_possible_matches` or mark it `needs_human_review`.
 - Confidence must be an integer from 0 to 100.
+- Every rule ID you emit (in `rules[].id`, `recommended_survivor_id`, `recommended_survivor_rule_id`, `safe_to_delete_rule_ids`, `rule_ids`, `broad_rule.id`, `possibly_shadowed_rules[].id`, etc.) MUST be copied verbatim from the `id` field of the input rule objects. Never use array positions, never renumber starting from 0 or 1, and never invent IDs. The `0` values shown in the schema above are placeholders only.
 - Keep the output compact but complete.
 - Return valid JSON only.
 Now analyze the dataset.
@@ -658,16 +662,20 @@ def review_pattern_regex_efficiency():
             "message": f"Rate limit reached ({count}/{rate_limit})",
         }
 
-    lines = []
-    for p in regex_patterns:
-        rule_name = p.get("title") or f"pattern_{p.get('id')}"
-        lines.append(f"{p.get('id')}\t{rule_name}\t{p.get('match_regex')}")
+    dataset = [
+        {
+            "id": p.get("id"),
+            "name": p.get("title") or f"pattern_{p.get('id')}",
+            "regex": p.get("match_regex"),
+        }
+        for p in regex_patterns
+    ]
 
     review_prompt = (
         "Analyze the following dataset of regex rules.\n\n"
         + REGEX_EFFICIENCY_REVIEW_REQUIREMENTS
-        + "\n\nDataset:\nID\tRule Name\tRegex Pattern\n"
-        + "\n".join(lines)
+        + "\n\nDataset (JSON array of rule objects):\n"
+        + json.dumps(dataset, ensure_ascii=False)
     )
 
     try:

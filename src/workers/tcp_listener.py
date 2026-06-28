@@ -111,7 +111,7 @@ def handle_tcp_client(conn_sock, addr):
     last_filter_refresh = time.monotonic()
 
     db_conn = connect_to_db()
-    
+
     # Load filter patterns
     _refresh_filter_cache()
 
@@ -142,11 +142,11 @@ def handle_tcp_client(conn_sock, addr):
                     continue
 
                 parsed = parse_syslog_message(line, source_ip=source_ip)
-                
+
                 # Check if message matches any filter pattern
                 if _should_filter_message(parsed["message"]):
                     continue
-                
+
                 log_batch.append(
                     (
                         parsed["received_at"],
