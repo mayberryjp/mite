@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime
 
-SETTINGS_CACHE_TTL_SECONDS = 2
+SETTINGS_CACHE_TTL_SECONDS = 60
 _settings_cache = {}
 
 

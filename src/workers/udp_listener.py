@@ -8,7 +8,7 @@ from src.core.constants import (
     SYSLOG_BUFFER_SIZE,
     DEFAULT_UDP_BATCH_SIZE,
     DEFAULT_UDP_BATCH_FLUSH_INTERVAL_SECONDS,
-    SYSLOG_TCP_RECV_BUFFER_SIZE,
+    SYSLOG_UDP_RECV_BUFFER_SIZE,
     FILTER_CACHE_TTL_SECONDS,
 )
 from src.core.db import (
@@ -26,7 +26,7 @@ from src.utils.locallogging import log_error, log_info
 BUFFER_SIZE = SYSLOG_BUFFER_SIZE
 UDP_BATCH_SIZE_DEFAULT = DEFAULT_UDP_BATCH_SIZE
 UDP_BATCH_FLUSH_INTERVAL_DEFAULT = DEFAULT_UDP_BATCH_FLUSH_INTERVAL_SECONDS
-UDP_RECV_BUFFER_DEFAULT = SYSLOG_TCP_RECV_BUFFER_SIZE  # 4 MB
+UDP_RECV_BUFFER_DEFAULT = SYSLOG_UDP_RECV_BUFFER_SIZE  # 4 MB
 
 
 # Cache of filter patterns (patterns with filter_at_listener = 1)
@@ -74,11 +74,11 @@ def _should_filter_message(message):
 
 def run_udp_listener():
     logger = logging.getLogger(__name__)
-    batch_size = _get_int_setting("udp_batch_size", UDP_BATCH_SIZE_DEFAULT)
-    batch_flush_interval = _get_float_setting(
+    batch_size = get_int_setting("udp_batch_size", UDP_BATCH_SIZE_DEFAULT)
+    batch_flush_interval = get_float_setting(
         "udp_batch_flush_interval_seconds", UDP_BATCH_FLUSH_INTERVAL_DEFAULT
     )
-    udp_recv_buffer = _get_int_setting(
+    udp_recv_buffer = get_int_setting(
         "udp_recv_buffer_bytes", UDP_RECV_BUFFER_DEFAULT, min_value=65536
     )
 

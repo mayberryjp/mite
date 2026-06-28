@@ -28,7 +28,7 @@ Traditional syslog monitoring requires you to write rules. Lots of rules. And th
 
 ### 🤖 AI-Powered Classification
 - Sends pending patterns to OpenAI-compatible LLMs in batches
-- Classifies each pattern as: **critical**, **high**, **medium**, **low**, or **noise**
+- Classifies each pattern as: **high**, **medium**, or **low** (override to **critical** or **noise** manually)
 - Provides AI-generated explanations for each classification
 - Efficient batch processing with configurable API rate limits
 
@@ -256,7 +256,7 @@ The processor runs every 10 seconds and:
 The AI worker:
 1. Batches up pending patterns (default: 20 per batch)
 2. Sends them to your LLM with context about infrastructure
-3. Receives classifications: critical, high, medium, low, or noise
+3. Receives classifications: high, medium, or low (critical and noise are set only via user override)
 4. Stores classification and AI-generated explanation
 
 ### Step 4: Alert & Track

@@ -33,7 +33,7 @@ def run_ai_classification_cycle():
 
 
 def run_regex_review_cycle_if_due(force=False):
-    review_interval = _get_int_setting(
+    review_interval = get_int_setting(
         "ai_regex_review_interval_seconds", AI_REGEX_REVIEW_INTERVAL_DEFAULT
     )
 
@@ -75,7 +75,7 @@ if __name__ == "__main__":
         except Exception as e:
             log_error(logger, f"[ERROR] AI worker error: {type(e).__name__}: {e}")
 
-        sleep_seconds = _get_int_setting(
+        sleep_seconds = get_int_setting(
             "ai_discovery_interval_seconds", AI_DISCOVERY_INTERVAL_DEFAULT
         )
         time.sleep(sleep_seconds)

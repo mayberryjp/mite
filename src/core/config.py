@@ -37,7 +37,9 @@ ALERT_RETENTION_DAYS = int(os.getenv("ALERT_RETENTION_DAYS", "30"))
 
 
 # Version — read from VERSION file
-def _get_version():    """Get app version from VERSION file. Returns 'unknown' if file cannot be read (best-effort)."""    try:
+def _get_version():
+    """Get app version from VERSION file. Returns 'unknown' if file cannot be read (best-effort)."""
+    try:
         version_file = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "VERSION"
         )

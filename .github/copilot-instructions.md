@@ -42,7 +42,7 @@ Instead of manual rules, Mite automatically identifies log patterns:
 
 1. **Pattern extraction** (`src/core/pattern_extractor.py`): Normalizes log messages by replacing dynamic values (IPs → `<IP>`, numbers → `<N>`, timestamps → `<TS>`, UUIDs → `<UUID>`, etc.) with placeholders, producing a stable pattern signature.
 2. **Pattern storage**: Patterns are stored in the `patterns` table with a unique hash. Each pattern tracks hit count, first/last seen, AI classification, and optional user override.
-3. **AI classification**: The AI worker sends unclassified patterns (with sample messages) to an LLM in batches and receives classifications: `critical`, `high`, `medium`, `low`, or `noise`.
+3. **AI classification**: The AI worker sends unclassified patterns (with sample messages) to an LLM in batches and receives classifications: `high`, `medium`, or `low`. (AI-returned `critical` is downgraded to `high`; `critical` and `noise` are reachable only via user override.)
 4. **User override**: Users can override any AI classification via `PUT /api/patterns/<id>` with `{"classification": "noise"}` (or any valid level).
 5. **Effective classification**: `user_override` takes precedence over `classification`. Only `critical` and `high` patterns generate alerts.
 

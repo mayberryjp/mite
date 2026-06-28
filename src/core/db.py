@@ -1749,7 +1749,7 @@ def get_pattern_stats(pattern_id, hours=100):
         disconnect_from_db(conn)
 
 
-def get_all_pattern_stats(hours=100):
+def get_all_pattern_stats(hours=12):
     conn = connect_to_db()
     if not conn:
         return {}

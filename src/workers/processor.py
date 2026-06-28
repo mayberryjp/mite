@@ -108,7 +108,7 @@ def _is_meaningful_message(tokenized_message):
         return False
 
     # Remove placeholder tokens and punctuation to estimate remaining keyword signal.
-    stripped = re.sub(r"<X>|[^A-Za-z\s]", " ", preprocessed).strip()
+    stripped = re.sub(r"[^A-Za-z\s]", " ", preprocessed).strip()
     # Count actual alphabetic words (not single chars)
     words = [w for w in stripped.split() if len(w) > 1 and any(c.isalpha() for c in w)]
     return len(words) >= 3
@@ -265,9 +265,9 @@ def _classify_until_regex_matches(
 ):
     """Classify with AI and require regex to match the originating log before accepting."""
     debug_preprocessed_message = _truncate_for_log(tokenized_message)
-    log_error(
+    log_info(
         logger,
-        f"[DEBUG] Pattern {pattern_id} tokenized message sent to AI: {debug_preprocessed_message!r}",
+        f"[INFO] Pattern {pattern_id} tokenized message sent to AI: {debug_preprocessed_message!r}",
     )
     previous_regex = None
 
@@ -281,9 +281,9 @@ def _classify_until_regex_matches(
                 f"Failed regex: {previous_regex!r}. "
                 f"Tokenized log: {tokenized_message!r}"
             )
-            log_error(
+            log_info(
                 logger,
-                f"[DEBUG] Pattern {pattern_id} retry feedback sent to AI (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS})",
+                f"[INFO] Pattern {pattern_id} retry feedback sent to AI (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS})",
             )
 
         ai_pattern = classify_single_pattern(
@@ -325,8 +325,8 @@ def _classify_until_regex_matches(
             logger,
             f"[ERROR] AI regex did not match source log for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}); retrying",
         )
-        log_error(logger, f"[DEBUG] Pattern {pattern_id} regex: {debug_regex!r}")
-        log_error(logger, f"[DEBUG] Pattern {pattern_id} message: {debug_message!r}")
+        log_info(logger, f"[INFO] Pattern {pattern_id} regex: {debug_regex!r}")
+        log_info(logger, f"[INFO] Pattern {pattern_id} message: {debug_message!r}")
 
     return None
 
@@ -465,7 +465,7 @@ def process_log(log_entry):
             action="",
         )
 
-        if alert_id and effective == "critical":
+        if alert_id:
             success = send_alert_discord(
                 severity=effective,
                 pattern_text=pattern.get("title") or message[:80],

@@ -1,4 +1,13 @@
 #!/usr/bin/env sh
 # Git executes this file name (without extension) as the pre-commit hook.
 # Delegate to the PowerShell implementation for Windows workflows.
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$(dirname "$0")/pre-commit.ps1"
+# Prefer PowerShell 7+ (pwsh); fall back to Windows PowerShell (powershell.exe).
+hook_script="$(dirname "$0")/pre-commit.ps1"
+if command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -ExecutionPolicy Bypass -File "$hook_script"
+elif command -v powershell >/dev/null 2>&1; then
+    powershell -NoProfile -ExecutionPolicy Bypass -File "$hook_script"
+else
+    echo "pre-commit: neither 'pwsh' nor 'powershell' found on PATH; cannot run formatting checks." >&2
+    exit 1
+fi
