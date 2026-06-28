@@ -93,7 +93,9 @@ def _format_syslog_message(message, facility=16, severity=6):
     return syslog_msg
 
 
-def forward_log_to_syslog(message, destination_str, log_classification, min_classification):
+def forward_log_to_syslog(
+    message, destination_str, log_classification, min_classification
+):
     """Forward a log message to a remote syslog server via UDP.
 
     Args:

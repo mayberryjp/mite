@@ -69,10 +69,17 @@ def _load_syslog_forwarding_settings():
 
     # Load enabled flag
     enabled_str = get_setting("syslog_forward_enabled", "false")
-    SYSLOG_FORWARD_ENABLED = str(enabled_str).strip().lower() in ("true", "1", "yes", "on")
+    SYSLOG_FORWARD_ENABLED = str(enabled_str).strip().lower() in (
+        "true",
+        "1",
+        "yes",
+        "on",
+    )
 
     # Load destination
-    SYSLOG_FORWARD_DESTINATION = (get_setting("syslog_forward_destination", "") or "").strip()
+    SYSLOG_FORWARD_DESTINATION = (
+        get_setting("syslog_forward_destination", "") or ""
+    ).strip()
 
     # Load minimum classification level
     min_class = get_setting("syslog_forward_min_classification", "low") or "low"

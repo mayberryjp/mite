@@ -421,7 +421,6 @@ def test_ai_connection():
         payload = {
             "model": AI_MODEL,
             "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-            "max_tokens": 10,
         }
         resp = requests.post(
             f"{AI_API_BASE_URL.rstrip('/')}/chat/completions",
