@@ -64,6 +64,12 @@ def init_database():
             CONST_CREATE_SETTINGS_SQL,
         ]:
             cursor.executescript(sql)
+        # Migration: Add filter_at_processor column if it doesn't exist
+        cursor.execute("PRAGMA table_info(patterns)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "filter_at_listener" not in columns:
+            cursor.execute("ALTER TABLE patterns ADD COLUMN filter_at_listener INTEGER DEFAULT 0")
+            log_info(logger, "[INFO] Added filter_at_listener column to patterns table")
         cursor.execute("PRAGMA journal_mode=WAL;")
         # Seed defaults only when rows do not already exist.
         cursor.execute(
@@ -516,7 +522,7 @@ def get_pattern_by_hash(pattern_hash):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, pattern_hash, pattern_text, sample_message, classification, ai_explanation, user_override, match_regex, title, host, program, hit_count, first_seen_at, last_seen_at FROM patterns WHERE pattern_hash = ?",
+            "SELECT id, pattern_hash, pattern_text, sample_message, classification, ai_explanation, user_override, match_regex, title, host, program, hit_count, first_seen_at, last_seen_at, filter_at_listener FROM patterns WHERE pattern_hash = ?",
             (pattern_hash,),
         )
         row = cursor.fetchone()
@@ -537,6 +543,7 @@ def get_pattern_by_hash(pattern_hash):
             "hit_count": row[11],
             "first_seen_at": row[12],
             "last_seen_at": row[13],
+            "filter_at_listener": bool(row[14]),
         }
     finally:
         disconnect_from_db(conn)
@@ -651,6 +658,24 @@ def update_pattern_user_override(pattern_id, user_override):
     execute_with_retry(_update)
 
 
+def update_pattern_filter_at_listener(pattern_id, filter_at_listener):
+    def _update():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE patterns SET filter_at_listener = ? WHERE id = ?",
+                (1 if filter_at_listener else 0, pattern_id),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_update)
+
+
 def move_low_patterns_to_noise():
     """Set user_override to 'noise' for patterns whose effective classification is 'low'."""
 
@@ -750,7 +775,7 @@ def get_all_patterns(limit=None, offset=0, classification=None):
             cursor.execute(
                 f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
                            ai_explanation, user_override, match_regex, title, host, program, hit_count,
-                           first_seen_at, last_seen_at
+                           first_seen_at, last_seen_at, filter_at_listener
                     FROM patterns {where}
                     ORDER BY last_seen_at DESC LIMIT ? OFFSET ?""",
                 params + [limit, offset],
@@ -759,7 +784,7 @@ def get_all_patterns(limit=None, offset=0, classification=None):
             cursor.execute(
                 f"""SELECT id, pattern_hash, pattern_text, sample_message, classification,
                            ai_explanation, user_override, match_regex, title, host, program, hit_count,
-                           first_seen_at, last_seen_at
+                           first_seen_at, last_seen_at, filter_at_listener
                     FROM patterns {where}
                     ORDER BY last_seen_at DESC""",
                 params,
@@ -781,6 +806,7 @@ def get_all_patterns(limit=None, offset=0, classification=None):
                 "hit_count": r[11],
                 "first_seen_at": r[12],
                 "last_seen_at": r[13],
+                "filter_at_listener": bool(r[14]),
                 "effective_classification": r[6] if r[6] else r[4],
             }
             for r in rows
@@ -799,7 +825,7 @@ def get_pattern_by_id(pattern_id):
         cursor.execute(
             """SELECT id, pattern_hash, pattern_text, sample_message, classification,
                       ai_explanation, user_override, match_regex, title, host, program, hit_count,
-                      first_seen_at, last_seen_at
+                      first_seen_at, last_seen_at, filter_at_listener
                FROM patterns WHERE id = ?""",
             (pattern_id,),
         )
@@ -821,6 +847,7 @@ def get_pattern_by_id(pattern_id):
             "hit_count": row[11],
             "first_seen_at": row[12],
             "last_seen_at": row[13],
+            "filter_at_listener": bool(row[14]),
             "effective_classification": row[6] if row[6] else row[4],
         }
     finally:
@@ -842,6 +869,28 @@ def get_patterns_with_regex():
                 "id": r[0],
                 "match_regex": r[1],
                 "effective_classification": r[3] if r[3] else r[2],
+            }
+            for r in rows
+        ]
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_filter_patterns():
+    """Get only patterns marked for filtering at listener (filter_at_listener = 1)."""
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""SELECT id, match_regex
+               FROM patterns
+               WHERE filter_at_listener = 1 AND match_regex IS NOT NULL""")
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "match_regex": r[1],
             }
             for r in rows
         ]
@@ -1536,6 +1585,20 @@ def delete_all_patterns():
         deleted = cursor.rowcount
         conn.commit()
         return deleted
+    finally:
+        disconnect_from_db(conn)
+
+
+def reset_all_pattern_hit_counts():
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE patterns SET hit_count = 0")
+        updated = cursor.rowcount
+        conn.commit()
+        return updated
     finally:
         disconnect_from_db(conn)
 

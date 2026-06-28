@@ -1,4 +1,5 @@
 import logging
+import re
 import socket
 import time
 
@@ -6,6 +7,7 @@ from src.core.config import MITE_SYSLOG_UDP_HOST, MITE_SYSLOG_UDP_PORT
 from src.core.db import (
     connect_to_db,
     disconnect_from_db,
+    get_filter_patterns,
     get_setting,
     insert_logs_batch,
 )
@@ -48,6 +50,49 @@ def _get_float_setting(key, default_value, min_value=0.1):
         return default_value
 
 
+# Cache of filter patterns (patterns with filter_at_listener = 1)
+_filter_cache = []
+_filter_cache_ttl = 60  # seconds
+
+
+def _refresh_filter_cache():
+    """Load and compile patterns marked for filtering at listener."""
+    global _filter_cache
+    try:
+        patterns = get_filter_patterns()
+        compiled = []
+        for p in patterns:
+            try:
+                compiled.append(
+                    {
+                        "id": p["id"],
+                        "regex": re.compile(p["match_regex"]),
+                    }
+                )
+            except re.error as e:
+                logging.getLogger(__name__).warning(
+                    f"[WARN] Invalid regex for filter pattern {p['id']}: {e}"
+                )
+        _filter_cache = compiled
+    except Exception as e:
+        logging.getLogger(__name__).error(
+            f"[ERROR] Failed to load filter patterns: {e}"
+        )
+
+
+def _should_filter_message(message):
+    """Check if message matches any filter pattern. Returns True if should be filtered."""
+    if not _filter_cache:
+        return False
+    for entry in _filter_cache:
+        try:
+            if entry["regex"].search(message):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def run_udp_listener():
     logger = logging.getLogger(__name__)
     batch_size = _get_int_setting("udp_batch_size", UDP_BATCH_SIZE_DEFAULT)
@@ -81,6 +126,10 @@ def run_udp_listener():
     last_flush = time.monotonic()
 
     conn = connect_to_db()
+    
+    # Load filter patterns
+    _refresh_filter_cache()
+    last_filter_refresh = time.monotonic()
 
     while True:
         try:
@@ -92,6 +141,10 @@ def run_udp_listener():
                     _flush_batch(logger, log_batch, conn)
                     log_batch = []
                     last_flush = time.monotonic()
+                # Refresh filter cache periodically
+                if time.monotonic() - last_filter_refresh > _filter_cache_ttl:
+                    _refresh_filter_cache()
+                    last_filter_refresh = time.monotonic()
                 continue
 
             source_ip = addr[0]
@@ -101,6 +154,11 @@ def run_udp_listener():
                 continue
 
             parsed = parse_syslog_message(raw_line, source_ip=source_ip)
+            
+            # Check if message matches any filter pattern
+            if _should_filter_message(parsed["message"]):
+                continue
+            
             log_batch.append(
                 (
                     parsed["received_at"],

@@ -1,4 +1,5 @@
 import logging
+import re
 import socket
 import threading
 import time
@@ -7,6 +8,7 @@ from src.core.config import MITE_SYSLOG_TCP_HOST, MITE_SYSLOG_TCP_PORT
 from src.core.db import (
     connect_to_db,
     disconnect_from_db,
+    get_filter_patterns,
     get_setting,
     insert_logs_batch,
 )
@@ -50,6 +52,49 @@ def _get_float_setting(key, default_value, min_value=0.1):
         return default_value
 
 
+# Cache of filter patterns (patterns with filter_at_listener = 1)
+_filter_cache = []
+_filter_cache_ttl = 60  # seconds
+
+
+def _refresh_filter_cache():
+    """Load and compile patterns marked for filtering at listener."""
+    global _filter_cache
+    try:
+        patterns = get_filter_patterns()
+        compiled = []
+        for p in patterns:
+            try:
+                compiled.append(
+                    {
+                        "id": p["id"],
+                        "regex": re.compile(p["match_regex"]),
+                    }
+                )
+            except re.error as e:
+                logging.getLogger(__name__).warning(
+                    f"[WARN] Invalid regex for filter pattern {p['id']}: {e}"
+                )
+        _filter_cache = compiled
+    except Exception as e:
+        logging.getLogger(__name__).error(
+            f"[ERROR] Failed to load filter patterns: {e}"
+        )
+
+
+def _should_filter_message(message):
+    """Check if message matches any filter pattern. Returns True if should be filtered."""
+    if not _filter_cache:
+        return False
+    for entry in _filter_cache:
+        try:
+            if entry["regex"].search(message):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def _flush_batch(logger, log_batch, conn):
     try:
         insert_logs_batch(log_batch, conn=conn)
@@ -63,8 +108,12 @@ def handle_tcp_client(conn_sock, addr):
     buffer = ""
     log_batch = []
     last_flush = time.monotonic()
+    last_filter_refresh = time.monotonic()
 
     db_conn = connect_to_db()
+    
+    # Load filter patterns
+    _refresh_filter_cache()
 
     try:
         conn_sock.settimeout(BATCH_FLUSH_INTERVAL)
@@ -76,6 +125,10 @@ def handle_tcp_client(conn_sock, addr):
                     _flush_batch(logger, log_batch, db_conn)
                     log_batch = []
                     last_flush = time.monotonic()
+                # Refresh filter cache periodically
+                if time.monotonic() - last_filter_refresh > _filter_cache_ttl:
+                    _refresh_filter_cache()
+                    last_filter_refresh = time.monotonic()
                 continue
 
             if not data:
@@ -89,6 +142,11 @@ def handle_tcp_client(conn_sock, addr):
                     continue
 
                 parsed = parse_syslog_message(line, source_ip=source_ip)
+                
+                # Check if message matches any filter pattern
+                if _should_filter_message(parsed["message"]):
+                    continue
+                
                 log_batch.append(
                     (
                         parsed["received_at"],

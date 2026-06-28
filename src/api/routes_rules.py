@@ -17,7 +17,9 @@ from src.core.db import (
     get_pattern_stats,
     get_setting,
     move_low_patterns_to_noise,
+    reset_all_pattern_hit_counts,
     update_pattern_ai_explanation,
+    update_pattern_filter_at_listener,
     update_pattern_regex,
     update_pattern_title,
     update_pattern_user_override,
@@ -97,6 +99,7 @@ def setup_patterns_routes(app):
             match_regex = data.get("match_regex")
             title = data.get("title")
             ai_explanation = data.get("ai_explanation")
+            filter_at_listener = data.get("filter_at_listener")
 
             if user_override is not None and user_override not in {
                 "critical",
@@ -148,6 +151,13 @@ def setup_patterns_routes(app):
                             f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise",
                         )
 
+            if filter_at_listener is not None:
+                update_pattern_filter_at_listener(pattern_id, filter_at_listener)
+                log_info(
+                    logger,
+                    f"[INFO] Pattern {pattern_id} filter_at_listener set to {filter_at_listener}",
+                )
+
             log_info(logger, f"[INFO] Pattern {pattern_id} updated")
             response.content_type = "application/json"
             result = {"status": "ok", "pattern_id": pattern_id}
@@ -192,6 +202,19 @@ def setup_patterns_routes(app):
             return json.dumps({"status": "ok", "deleted": deleted})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to delete all patterns: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns/actions/reset-hit-counts", method=["POST"])
+    def api_reset_all_pattern_hit_counts():
+        logger = logging.getLogger(__name__)
+        try:
+            updated = reset_all_pattern_hit_counts()
+            log_info(logger, f"[INFO] Reset hit counts for {updated} patterns")
+            response.content_type = "application/json"
+            return json.dumps({"status": "ok", "updated": updated})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to reset pattern hit counts: {e}")
             response.status = 500
             return {"error": str(e)}
 

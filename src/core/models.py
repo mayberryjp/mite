@@ -72,7 +72,8 @@ CONST_CREATE_PATTERNS_SQL = """
         program TEXT,
         hit_count INTEGER DEFAULT 1,
         first_seen_at TEXT NOT NULL,
-        last_seen_at TEXT NOT NULL
+        last_seen_at TEXT NOT NULL,
+        filter_at_listener INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_patterns_hash ON patterns(pattern_hash);
     CREATE INDEX IF NOT EXISTS idx_patterns_classification ON patterns(classification);
