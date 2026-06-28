@@ -41,7 +41,6 @@ def api_health():
 
 @app.route("/api/stats", method=["GET"])
 def api_stats():
-    logger = logging.getLogger(__name__)
     try:
         stats = get_stats()
         response.content_type = "application/json"
@@ -54,7 +53,6 @@ def api_stats():
 
 @app.route("/api/discord/test", method=["POST"])
 def api_test_discord():
-    logger = logging.getLogger(__name__)
     try:
         success = send_discord_message(
             "🔔 Mite Test Alert\n\nThis is a test message from Mite."
@@ -105,7 +103,6 @@ def options_handler(path=None):
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger(__name__)
     log_info(logger, "[INFO] Waiting 5 seconds for database initialization...")
     time.sleep(5)
     log_info(logger, "[INFO] Starting Mite API server...")

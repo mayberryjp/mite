@@ -18,23 +18,6 @@ from src.utils.locallogging import log_error, log_info
 BUFFER_SIZE = 65535
 TCP_BATCH_SIZE_DEFAULT = 500
 TCP_BATCH_FLUSH_INTERVAL_DEFAULT = 1.0
-BATCH_SIZE = TCP_BATCH_SIZE_DEFAULT
-BATCH_FLUSH_INTERVAL = TCP_BATCH_FLUSH_INTERVAL_DEFAULT
-
-
-def _get_int_setting(key, default_value, min_value=1):
-    raw_value = get_setting(key, str(default_value))
-    try:
-        parsed = int(raw_value)
-        if parsed < min_value:
-            raise ValueError(f"{key} must be >= {min_value}")
-        return parsed
-    except (TypeError, ValueError):
-        log_error(
-            logging.getLogger(__name__),
-            f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
-        )
-        return default_value
 
 
 def _get_float_setting(key, default_value, min_value=0.1):

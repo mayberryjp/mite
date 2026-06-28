@@ -32,7 +32,6 @@ from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
 logger = logging.getLogger(__name__)
 
-ALERT_SEVERITIES = {"critical"}
 MIN_MESSAGE_LENGTH_DEFAULT = 50
 MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
 PROCESS_INTERVAL_DEFAULT = 10
@@ -44,9 +43,6 @@ MAX_AI_REGEX_ATTEMPTS = 3
 SYSLOG_FORWARD_ENABLED = False
 SYSLOG_FORWARD_DESTINATION = ""
 SYSLOG_FORWARD_MIN_CLASSIFICATION = "low"
-
-
-def _load_min_message_length_setting():
     """Load minimum message length from settings table with a safe fallback."""
     global MIN_MESSAGE_LENGTH
     raw_value = get_setting("min_message_length", str(MIN_MESSAGE_LENGTH_DEFAULT))
@@ -447,7 +443,7 @@ def process_log(log_entry):
     # Persist inbound non-noise syslogs when explicitly enabled.
     write_syslog_daily_log(logger, log_entry.get("raw_message") or message)
 
-    if effective in ALERT_SEVERITIES:
+    if effective == "critical":
         alert_id = insert_alert(
             created_at=log_entry["received_at"],
             log_id=log_entry["id"],
