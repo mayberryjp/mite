@@ -4,6 +4,13 @@ import socket
 import time
 
 from src.core.config import MITE_SYSLOG_UDP_HOST, MITE_SYSLOG_UDP_PORT
+from src.core.constants import (
+    SYSLOG_BUFFER_SIZE,
+    DEFAULT_UDP_BATCH_SIZE,
+    DEFAULT_UDP_BATCH_FLUSH_INTERVAL_SECONDS,
+    SYSLOG_TCP_RECV_BUFFER_SIZE,
+    FILTER_CACHE_TTL_SECONDS,
+)
 from src.core.db import (
     connect_to_db,
     disconnect_from_db,
@@ -15,15 +22,16 @@ from src.core.settings_loader import get_int_setting, get_float_setting
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
 
-BUFFER_SIZE = 65535
-UDP_BATCH_SIZE_DEFAULT = 500
-UDP_BATCH_FLUSH_INTERVAL_DEFAULT = 1.0
-UDP_RECV_BUFFER_DEFAULT = 4 * 1024 * 1024  # 4 MB
+# Use constants for default values; these can be overridden by database settings
+BUFFER_SIZE = SYSLOG_BUFFER_SIZE
+UDP_BATCH_SIZE_DEFAULT = DEFAULT_UDP_BATCH_SIZE
+UDP_BATCH_FLUSH_INTERVAL_DEFAULT = DEFAULT_UDP_BATCH_FLUSH_INTERVAL_SECONDS
+UDP_RECV_BUFFER_DEFAULT = SYSLOG_TCP_RECV_BUFFER_SIZE  # 4 MB
 
 
 # Cache of filter patterns (patterns with filter_at_listener = 1)
 _filter_cache = []
-_filter_cache_ttl = 60  # seconds
+_filter_cache_ttl = FILTER_CACHE_TTL_SECONDS
 
 
 def _refresh_filter_cache():

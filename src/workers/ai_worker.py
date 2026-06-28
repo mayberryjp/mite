@@ -2,15 +2,20 @@ import logging
 import time
 
 from src.core.ai_discovery import classify_patterns, review_pattern_regex_efficiency
+from src.core.constants import (
+    DEFAULT_AI_BATCH_SIZE,
+    DEFAULT_AI_DISCOVERY_INTERVAL_SECONDS,
+    DEFAULT_AI_REGEX_REVIEW_INTERVAL_SECONDS,
+)
 from src.core.db import get_pending_patterns, get_setting, init_database, set_setting
 from src.core.settings_loader import get_int_setting
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
 
-AI_BATCH_SIZE_DEFAULT = 20
-AI_DISCOVERY_INTERVAL_DEFAULT = 3600
-AI_REGEX_REVIEW_INTERVAL_DEFAULT = 7 * 24 * 60 * 60
+AI_BATCH_SIZE_DEFAULT = DEFAULT_AI_BATCH_SIZE
+AI_DISCOVERY_INTERVAL_DEFAULT = DEFAULT_AI_DISCOVERY_INTERVAL_SECONDS
+AI_REGEX_REVIEW_INTERVAL_DEFAULT = DEFAULT_AI_REGEX_REVIEW_INTERVAL_SECONDS
 
 
 def run_ai_classification_cycle():

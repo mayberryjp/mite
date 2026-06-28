@@ -30,19 +30,28 @@ from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.core.syslog_forwarder import forward_log_to_syslog
 from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
+from src.core.constants import (
+    MIN_MESSAGE_LENGTH,
+    DEFAULT_PROCESSOR_INTERVAL_SECONDS,
+    DEFAULT_PROCESSOR_FETCH_LIMIT,
+    MAX_AI_REGEX_ATTEMPTS as MAX_AI_REGEX_ATTEMPTS_CONST,
+)
+
 logger = logging.getLogger(__name__)
 
-MIN_MESSAGE_LENGTH_DEFAULT = 50
+# Import constants and set up initial module variables
+MIN_MESSAGE_LENGTH_DEFAULT = MIN_MESSAGE_LENGTH
 MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
-PROCESS_INTERVAL_DEFAULT = 10
+PROCESS_INTERVAL_DEFAULT = DEFAULT_PROCESSOR_INTERVAL_SECONDS
 PROCESS_INTERVAL = PROCESS_INTERVAL_DEFAULT
-PROCESS_FETCH_LIMIT_DEFAULT = 100
+PROCESS_FETCH_LIMIT_DEFAULT = DEFAULT_PROCESSOR_FETCH_LIMIT
 PROCESS_FETCH_LIMIT = PROCESS_FETCH_LIMIT_DEFAULT
 REGEX_CACHE_TTL_DEFAULT = 60
-MAX_AI_REGEX_ATTEMPTS = 3
+MAX_AI_REGEX_ATTEMPTS = MAX_AI_REGEX_ATTEMPTS_CONST
 SYSLOG_FORWARD_ENABLED = False
 SYSLOG_FORWARD_DESTINATION = ""
 SYSLOG_FORWARD_MIN_CLASSIFICATION = "low"
+def _load_min_message_length_setting():
     """Load minimum message length from settings table with a safe fallback."""
     global MIN_MESSAGE_LENGTH
     raw_value = get_setting("min_message_length", str(MIN_MESSAGE_LENGTH_DEFAULT))

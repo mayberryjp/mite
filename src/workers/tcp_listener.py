@@ -5,6 +5,13 @@ import threading
 import time
 
 from src.core.config import MITE_SYSLOG_TCP_HOST, MITE_SYSLOG_TCP_PORT
+from src.core.constants import (
+    SYSLOG_BUFFER_SIZE,
+    DEFAULT_TCP_BATCH_SIZE,
+    DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS,
+    SYSLOG_TCP_LISTEN_BACKLOG,
+    FILTER_CACHE_TTL_SECONDS,
+)
 from src.core.db import (
     connect_to_db,
     disconnect_from_db,
@@ -16,14 +23,15 @@ from src.core.settings_loader import get_int_setting, get_float_setting
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
 
-BUFFER_SIZE = 65535
-TCP_BATCH_SIZE_DEFAULT = 500
-TCP_BATCH_FLUSH_INTERVAL_DEFAULT = 1.0
+# Use constants for default values; these can be overridden by database settings
+BUFFER_SIZE = SYSLOG_BUFFER_SIZE
+TCP_BATCH_SIZE_DEFAULT = DEFAULT_TCP_BATCH_SIZE
+TCP_BATCH_FLUSH_INTERVAL_DEFAULT = DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS
 
 
 # Cache of filter patterns (patterns with filter_at_listener = 1)
 _filter_cache = []
-_filter_cache_ttl = 60  # seconds
+_filter_cache_ttl = FILTER_CACHE_TTL_SECONDS
 
 
 def _refresh_filter_cache():
@@ -158,7 +166,7 @@ def run_tcp_listener():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((MITE_SYSLOG_TCP_HOST, MITE_SYSLOG_TCP_PORT))
-    sock.listen(50)
+    sock.listen(SYSLOG_TCP_LISTEN_BACKLOG)
 
     log_info(
         logger,
