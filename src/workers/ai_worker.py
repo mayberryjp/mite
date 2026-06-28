@@ -3,6 +3,7 @@ import time
 
 from src.core.ai_discovery import classify_patterns, review_pattern_regex_efficiency
 from src.core.db import get_pending_patterns, get_setting, init_database, set_setting
+from src.core.settings_loader import get_int_setting
 from src.utils.locallogging import log_error, log_info
 
 logger = logging.getLogger(__name__)
@@ -12,24 +13,9 @@ AI_DISCOVERY_INTERVAL_DEFAULT = 3600
 AI_REGEX_REVIEW_INTERVAL_DEFAULT = 7 * 24 * 60 * 60
 
 
-def _get_int_setting(key, default_value, min_value=1):
-    raw_value = get_setting(key, str(default_value))
-    try:
-        parsed = int(raw_value)
-        if parsed < min_value:
-            raise ValueError(f"{key} must be >= {min_value}")
-        return parsed
-    except (TypeError, ValueError):
-        log_error(
-            logger,
-            f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
-        )
-        return default_value
-
-
 def run_ai_classification_cycle():
     """Retry classification for any patterns that failed inline classification."""
-    ai_batch_size = _get_int_setting("ai_batch_size", AI_BATCH_SIZE_DEFAULT)
+    ai_batch_size = get_int_setting("ai_batch_size", AI_BATCH_SIZE_DEFAULT)
     pending = get_pending_patterns(limit=ai_batch_size)
     if not pending:
         log_info(logger, "[INFO] No pending patterns to classify")

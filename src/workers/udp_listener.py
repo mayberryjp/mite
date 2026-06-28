@@ -11,6 +11,7 @@ from src.core.db import (
     get_setting,
     insert_logs_batch,
 )
+from src.core.settings_loader import get_int_setting, get_float_setting
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
 
@@ -18,36 +19,6 @@ BUFFER_SIZE = 65535
 UDP_BATCH_SIZE_DEFAULT = 500
 UDP_BATCH_FLUSH_INTERVAL_DEFAULT = 1.0
 UDP_RECV_BUFFER_DEFAULT = 4 * 1024 * 1024  # 4 MB
-
-
-def _get_int_setting(key, default_value, min_value=1):
-    raw_value = get_setting(key, str(default_value))
-    try:
-        parsed = int(raw_value)
-        if parsed < min_value:
-            raise ValueError(f"{key} must be >= {min_value}")
-        return parsed
-    except (TypeError, ValueError):
-        log_error(
-            logging.getLogger(__name__),
-            f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
-        )
-        return default_value
-
-
-def _get_float_setting(key, default_value, min_value=0.1):
-    raw_value = get_setting(key, str(default_value))
-    try:
-        parsed = float(raw_value)
-        if parsed < min_value:
-            raise ValueError(f"{key} must be >= {min_value}")
-        return parsed
-    except (TypeError, ValueError):
-        log_error(
-            logging.getLogger(__name__),
-            f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
-        )
-        return default_value
 
 
 # Cache of filter patterns (patterns with filter_at_listener = 1)
