@@ -33,7 +33,7 @@ from src.core.db import (
 )
 from src.core.discord import send_alert_discord, send_discord_message
 from src.core.pattern_extractor import extract_pattern, hash_pattern
-from src.core.syslog_forwarder import forward_log_to_syslog
+from src.core.syslog_forwarder import CLASSIFICATION_LEVELS, forward_log_to_syslog
 from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ MAX_AI_REGEX_ATTEMPTS = MAX_AI_REGEX_ATTEMPTS_CONST
 SYSLOG_FORWARD_ENABLED = False
 SYSLOG_FORWARD_DESTINATION = ""
 SYSLOG_FORWARD_MIN_CLASSIFICATION = "low"
+WRITE_SYSLOG_MIN_CLASSIFICATION = "low"
+DB_STORE_MIN_CLASSIFICATION = "low"
 
 
 def _load_min_message_length_setting():
@@ -71,7 +73,7 @@ def _load_min_message_length_setting():
 
 def _load_syslog_forwarding_settings():
     """Load syslog forwarding settings from the database."""
-    global SYSLOG_FORWARD_ENABLED, SYSLOG_FORWARD_DESTINATION, SYSLOG_FORWARD_MIN_CLASSIFICATION
+    global SYSLOG_FORWARD_ENABLED, SYSLOG_FORWARD_DESTINATION, SYSLOG_FORWARD_MIN_CLASSIFICATION, WRITE_SYSLOG_MIN_CLASSIFICATION, DB_STORE_MIN_CLASSIFICATION
 
     # Load enabled flag
     enabled_str = get_setting("syslog_forward_enabled", "false")
@@ -90,6 +92,12 @@ def _load_syslog_forwarding_settings():
     # Load minimum classification level
     min_class = get_setting("syslog_forward_min_classification", "low") or "low"
     SYSLOG_FORWARD_MIN_CLASSIFICATION = str(min_class).strip().lower()
+
+    write_min = get_setting("write_syslog_min_classification", "low") or "low"
+    WRITE_SYSLOG_MIN_CLASSIFICATION = str(write_min).strip().lower()
+
+    store_min = get_setting("db_store_min_classification", "low") or "low"
+    DB_STORE_MIN_CLASSIFICATION = str(store_min).strip().lower()
 
     if SYSLOG_FORWARD_ENABLED and SYSLOG_FORWARD_DESTINATION:
         log_info(
@@ -119,6 +127,16 @@ def _is_meaningful_message(tokenized_message):
 _regex_cache = []
 _regex_cache_time = 0
 REGEX_CACHE_TTL = REGEX_CACHE_TTL_DEFAULT
+
+
+def _meets_min_classification(classification, min_classification):
+    """Return True if classification is at or above min_classification level."""
+    try:
+        level = CLASSIFICATION_LEVELS.index((classification or "").lower())
+        min_level = CLASSIFICATION_LEVELS.index((min_classification or "").lower())
+        return level >= min_level
+    except ValueError:
+        return True
 
 
 def _load_runtime_settings():
@@ -439,19 +457,20 @@ def process_log(log_entry):
     # Record hourly stats for this pattern
     increment_pattern_stat(pattern_id, log_entry["received_at"])
 
-    # Check effective classification — silently drop noise logs
+    # Check effective classification
     effective = get_effective_classification(pattern)
 
     if effective == "noise":
         increment_noise_stat(log_entry["received_at"])
-        if _is_setting_enabled("save_noise_logs"):
-            mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
-        else:
-            delete_logs([log_entry["id"]])
+
+    # Drop logs below the minimum classification level for DB storage.
+    if not _meets_min_classification(effective, DB_STORE_MIN_CLASSIFICATION):
+        delete_logs([log_entry["id"]])
         return True
 
-    # Persist inbound non-noise syslogs when explicitly enabled.
-    write_syslog_daily_log(logger, log_entry.get("raw_message") or message)
+    # Persist inbound syslogs to disk only at or above the configured level.
+    if _meets_min_classification(effective, WRITE_SYSLOG_MIN_CLASSIFICATION):
+        write_syslog_daily_log(logger, log_entry.get("raw_message") or message)
 
     if effective == "critical":
         alert_id = insert_alert(

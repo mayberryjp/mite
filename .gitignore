@@ -3,6 +3,7 @@ __pycache__/
 *.sqlite
 *.db
 .env
+.venv/
 *.egg-info/
 dist/
 build/

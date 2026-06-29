@@ -100,6 +100,14 @@ def log_error(logger, message):
     print(formatted_message)
     logger.error(formatted_message)
     write_application_daily_log(logger, formatted_message)
+    try:
+        from src.core.db import create_action
+
+        create_action(formatted_message)
+    except Exception as e:
+        warn = f"[WARN] Failed to record error action: {e}"
+        print(warn)
+        logger.warning(warn)
 
 
 def log_warn(logger, message):

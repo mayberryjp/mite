@@ -6,10 +6,30 @@
 # to whatever "python" is on PATH otherwise.
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$py = $null
 if (Test-Path $venvPython) {
-    $py = $venvPython
-} else {
-    $py = "python"
+    & $venvPython --version *> $null
+    if ($LASTEXITCODE -eq 0) {
+        $py = $venvPython
+    } else {
+        Write-Host "Project .venv Python is broken; falling back to PATH Python."
+    }
+}
+if (-not $py) {
+    foreach ($candidate in @("python", "python3", "py")) {
+        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($cmd) {
+            & $candidate --version *> $null
+            if ($LASTEXITCODE -eq 0) {
+                $py = $candidate
+                break
+            }
+        }
+    }
+}
+if (-not $py) {
+    Write-Host "No working Python interpreter found on PATH. Commit aborted."
+    exit 1
 }
 
 Write-Host "Running flake8..."

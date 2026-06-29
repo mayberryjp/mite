@@ -22,7 +22,7 @@ EDITABLE_SETTINGS = {
     },
     "min_message_length": {
         "description": "Minimum log message length required before the processor treats a message as meaningful.",
-        "default": "50",
+        "default": "35",
         "type": "int",
         "min": 0,
     },
@@ -180,6 +180,16 @@ EDITABLE_SETTINGS = {
     },
     "syslog_forward_min_classification": {
         "description": "Minimum log classification level to forward: 'noise', 'low', 'medium', 'high', or 'critical'. Only logs at this level or higher will be forwarded. Only used when syslog_forward_enabled is true.",
+        "default": "low",
+        "type": "syslog_classification",
+    },
+    "db_store_min_classification": {
+        "description": "Minimum effective classification level to store logs in the database: 'noise', 'low', 'medium', 'high', or 'critical'. Logs below this level are discarded instead of stored.",
+        "default": "low",
+        "type": "syslog_classification",
+    },
+    "write_syslog_min_classification": {
+        "description": "Minimum effective classification level to write to the daily syslog files: 'noise', 'low', 'medium', 'high', or 'critical'. Only used when write_syslog_log is enabled.",
         "default": "low",
         "type": "syslog_classification",
     },
