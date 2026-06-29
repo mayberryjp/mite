@@ -217,10 +217,6 @@ def init_database():
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("alert_retention_days", "30"),
         )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("save_noise_logs", "true"),
-        )
         # Seed AI API daily rate limit if not already set
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

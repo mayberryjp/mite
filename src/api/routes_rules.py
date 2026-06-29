@@ -33,10 +33,11 @@ VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
 
 
 def _save_noise_logs_enabled():
-    value = get_setting("save_noise_logs")
+    """Noise logs are retained only when the DB store level includes noise."""
+    value = get_setting("db_store_min_classification")
     if value is None:
-        value = "false"
-    return str(value).strip().lower() in ("true", "1", "yes", "on")
+        value = "low"
+    return str(value).strip().lower() == "noise"
 
 
 def export_patterns_to_file(data_dir=None):
@@ -182,7 +183,7 @@ def setup_patterns_routes(app):
                     if _save_noise_logs_enabled():
                         log_info(
                             logger,
-                            f"[INFO] Pattern {pattern_id} marked as noise; retaining logs (save_noise_logs enabled)",
+                            f"[INFO] Pattern {pattern_id} marked as noise; retaining logs (db_store_min_classification=noise)",
                         )
                     else:
                         deleted = delete_logs_by_pattern_id(pattern_id)

@@ -370,7 +370,7 @@ def process_log(log_entry):
         if regex_classification == "noise":
             increment_pattern_stat(pattern_id, log_entry["received_at"])
             increment_noise_stat(log_entry["received_at"])
-            if _is_setting_enabled("save_noise_logs"):
+            if _meets_min_classification("noise", DB_STORE_MIN_CLASSIFICATION):
                 mark_logs_processed([log_entry["id"]], pattern_id=pattern_id)
             else:
                 delete_logs([log_entry["id"]])
