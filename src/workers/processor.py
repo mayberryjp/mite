@@ -13,7 +13,6 @@ from src.core.constants import (
     DEFAULT_PROCESSOR_INTERVAL_SECONDS,
 )
 from src.core.constants import MAX_AI_REGEX_ATTEMPTS as MAX_AI_REGEX_ATTEMPTS_CONST
-from src.core.constants import MIN_MESSAGE_LENGTH
 from src.core.db import (
     create_action,
     delete_logs,
@@ -22,7 +21,6 @@ from src.core.db import (
     get_patterns_with_regex,
     get_setting,
     get_unprocessed_logs,
-    increment_discarded_too_small_count,
     increment_noise_stat,
     increment_pattern_hit,
     increment_pattern_stat,
@@ -39,8 +37,6 @@ from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 logger = logging.getLogger(__name__)
 
 # Import constants and set up initial module variables
-MIN_MESSAGE_LENGTH_DEFAULT = MIN_MESSAGE_LENGTH
-MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
 PROCESS_INTERVAL_DEFAULT = DEFAULT_PROCESSOR_INTERVAL_SECONDS
 PROCESS_INTERVAL = PROCESS_INTERVAL_DEFAULT
 PROCESS_FETCH_LIMIT_DEFAULT = DEFAULT_PROCESSOR_FETCH_LIMIT
@@ -52,23 +48,6 @@ SYSLOG_FORWARD_DESTINATION = ""
 SYSLOG_FORWARD_MIN_CLASSIFICATION = "low"
 WRITE_SYSLOG_MIN_CLASSIFICATION = "low"
 DB_STORE_MIN_CLASSIFICATION = "low"
-
-
-def _load_min_message_length_setting():
-    """Load minimum message length from settings table with a safe fallback."""
-    global MIN_MESSAGE_LENGTH
-    raw_value = get_setting("min_message_length", str(MIN_MESSAGE_LENGTH_DEFAULT))
-    try:
-        value = int(raw_value)
-        if value < 0:
-            raise ValueError("min_message_length must be non-negative")
-        MIN_MESSAGE_LENGTH = value
-    except (TypeError, ValueError):
-        MIN_MESSAGE_LENGTH = MIN_MESSAGE_LENGTH_DEFAULT
-        log_error(
-            logger,
-            f"[ERROR] Invalid min_message_length setting '{raw_value}', using default {MIN_MESSAGE_LENGTH_DEFAULT}",
-        )
 
 
 def _load_syslog_forwarding_settings():
@@ -104,23 +83,6 @@ def _load_syslog_forwarding_settings():
             logger,
             f"[INFO] Syslog forwarding enabled: destination={SYSLOG_FORWARD_DESTINATION}, min_classification={SYSLOG_FORWARD_MIN_CLASSIFICATION}",
         )
-
-
-def _is_meaningful_message(tokenized_message):
-    """Check if a message has enough real content to be worth classifying.
-
-    Minimum length is evaluated on the preprocessed sample so dynamic numbers/symbols
-    do not inflate a low-signal log into passing the threshold.
-    """
-    preprocessed = (tokenized_message or "").strip()
-    if len(preprocessed) < MIN_MESSAGE_LENGTH:
-        return False
-
-    # Remove placeholder tokens and punctuation to estimate remaining keyword signal.
-    stripped = re.sub(r"[^A-Za-z\s]", " ", preprocessed).strip()
-    # Count actual alphabetic words (not single chars)
-    words = [w for w in stripped.split() if len(w) > 1 and any(c.isalpha() for c in w)]
-    return len(words) >= 3
 
 
 # Cache of compiled regexes, refreshed periodically
@@ -385,12 +347,6 @@ def process_log(log_entry):
             delete_logs([log_entry["id"]])
             return True
     else:
-        if not _is_meaningful_message(tokenized_message):
-            # Not enough real content — silently drop
-            increment_discarded_too_small_count()
-            delete_logs([log_entry["id"]])
-            return True
-
         # Deterministic pattern identity prevents duplicate patterns for equivalent logs.
         pattern_hash = hash_pattern(normalized_pattern)
         pattern = get_pattern_by_hash(pattern_hash)
@@ -548,9 +504,7 @@ if __name__ == "__main__":
     from src.core.db import init_database
 
     init_database()
-    _load_min_message_length_setting()
     _load_runtime_settings()
-    log_info(logger, f"[INFO] min_message_length set to {MIN_MESSAGE_LENGTH}")
 
     # Test AI connectivity at startup — fail hard if not configured
     log_info(logger, "[INFO] Testing AI API connectivity...")

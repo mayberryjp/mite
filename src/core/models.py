@@ -100,22 +100,15 @@ CONST_CREATE_PATTERN_STATS_SQL = """
     CREATE INDEX IF NOT EXISTS idx_pattern_stats_hour_bucket ON pattern_stats(hour_bucket);
 """
 
-CONST_CREATE_NOISE_STATS_SQL = """
-    CREATE TABLE IF NOT EXISTS noise_stats (
+CONST_CREATE_EVENT_STATS_SQL = """
+    CREATE TABLE IF NOT EXISTS event_stats (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        hour_bucket TEXT NOT NULL UNIQUE,
-        hit_count INTEGER DEFAULT 1
+        stat_type TEXT NOT NULL,
+        hour_bucket TEXT NOT NULL,
+        hit_count INTEGER DEFAULT 1,
+        UNIQUE(stat_type, hour_bucket)
     );
-    CREATE INDEX IF NOT EXISTS idx_noise_stats_hour_bucket ON noise_stats(hour_bucket);
-"""
-
-CONST_CREATE_DROPPED_STATS_SQL = """
-    CREATE TABLE IF NOT EXISTS dropped_stats (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        hour_bucket TEXT NOT NULL UNIQUE,
-        hit_count INTEGER DEFAULT 1
-    );
-    CREATE INDEX IF NOT EXISTS idx_dropped_stats_hour_bucket ON dropped_stats(hour_bucket);
+    CREATE INDEX IF NOT EXISTS idx_event_stats_type_hour ON event_stats(stat_type, hour_bucket);
 """
 
 CONST_CREATE_SETTINGS_SQL = """

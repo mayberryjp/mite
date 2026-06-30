@@ -21,8 +21,6 @@ services:
       - MITE_SYSLOG_TCP_PORT=1515
       - MITE_MCP_HOST=0.0.0.0
       - MITE_MCP_PORT=4070
-      - MITE_DB_PATH=/app/data/Mite.sqlite
-      - MITE_LOGS_DIR=/app/logs
       - AI_API_BASE_URL=
       - AI_API_KEY=
       - AI_MODEL=

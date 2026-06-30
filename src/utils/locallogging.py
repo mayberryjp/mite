@@ -10,7 +10,7 @@ _settings_cache = {}
 
 
 def _settings_db_path():
-    return os.getenv("MITE_DB_PATH", "/app/data/Mite.sqlite")
+    return "/app/data/mite.db"
 
 
 def _read_bool_setting(key, default=False):
@@ -38,7 +38,7 @@ def _read_bool_setting(key, default=False):
 
 
 def _write_daily_log_line(subfolder, message):
-    logs_root = os.getenv("MITE_LOGS_DIR", "/app/logs")
+    logs_root = "/app/logs"
     log_dir = os.path.join(logs_root, subfolder)
     os.makedirs(log_dir, exist_ok=True)
     log_filename = datetime.now().strftime("%Y-%m-%d.log")

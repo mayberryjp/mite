@@ -5,9 +5,8 @@ from src.core.db import (
     create_action,
     delete_old_ai_api_calls,
     delete_old_alerts,
-    delete_old_dropped_stats,
+    delete_old_event_stats,
     delete_old_logs,
-    delete_old_noise_stats,
     delete_old_pattern_stats,
     get_actions,
     get_hourly_log_counts,
@@ -110,16 +109,10 @@ def run_retention():
         f"[INFO] Retention: deleted {deleted_ai_calls} AI API call records older than 2 days",
     )
 
-    deleted_noise_stats = delete_old_noise_stats(hours=100)
+    deleted_event_stats = delete_old_event_stats(hours=100)
     log_info(
         logger,
-        f"[INFO] Retention: deleted {deleted_noise_stats} noise stats older than 100 hours",
-    )
-
-    deleted_dropped_stats = delete_old_dropped_stats(hours=100)
-    log_info(
-        logger,
-        f"[INFO] Retention: deleted {deleted_dropped_stats} dropped stats older than 100 hours",
+        f"[INFO] Retention: deleted {deleted_event_stats} event stats older than 100 hours",
     )
 
     _handle_no_logs_last_24h()

@@ -9,14 +9,17 @@ from src.core.constants import (
     DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS,
     DEFAULT_TCP_BATCH_SIZE,
     FILTER_CACHE_TTL_SECONDS,
+    MIN_MESSAGE_LENGTH,
     SYSLOG_BUFFER_SIZE,
     SYSLOG_TCP_LISTEN_BACKLOG,
 )
 from src.core.db import (
     connect_to_db,
     disconnect_from_db,
+    get_db_for_table,
     get_filter_patterns,
     insert_logs_batch,
+    record_discarded_too_small,
     record_silently_dropped,
 )
 from src.core.settings_loader import get_float_setting, get_int_setting
@@ -33,10 +36,19 @@ TCP_BATCH_FLUSH_INTERVAL_DEFAULT = DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS
 _filter_cache = []
 _filter_cache_ttl = FILTER_CACHE_TTL_SECONDS
 
+# Minimum meaningful message length, refreshed alongside the filter cache.
+_min_message_length = MIN_MESSAGE_LENGTH
+
 
 def _refresh_filter_cache():
     """Load and compile patterns marked for filtering at listener."""
-    global _filter_cache
+    global _filter_cache, _min_message_length
+    try:
+        _min_message_length = get_int_setting(
+            "min_message_length", MIN_MESSAGE_LENGTH, min_value=0
+        )
+    except Exception:
+        _min_message_length = MIN_MESSAGE_LENGTH
     try:
         patterns = get_filter_patterns()
         compiled = []
@@ -72,6 +84,20 @@ def _should_filter_message(message):
     return False
 
 
+def _is_meaningful_message(message):
+    """Return False for low-signal messages that are too small to be worth keeping.
+
+    Drops messages shorter than the configured minimum length or with fewer than
+    three real alphabetic words.
+    """
+    text = (message or "").strip()
+    if len(text) < _min_message_length:
+        return False
+    stripped = re.sub(r"[^A-Za-z\s]", " ", text).strip()
+    words = [w for w in stripped.split() if len(w) > 1 and any(c.isalpha() for c in w)]
+    return len(words) >= 3
+
+
 def _flush_batch(logger, log_batch, conn):
     try:
         insert_logs_batch(log_batch, conn=conn)
@@ -87,7 +113,16 @@ def handle_tcp_client(conn_sock, addr):
     last_flush = time.monotonic()
     last_filter_refresh = time.monotonic()
 
-    db_conn = connect_to_db()
+    # In-memory counter for logs silently dropped at the listener. Flushed to
+    # the DB on the same cadence as the log batch, then reset to 0.
+    dropped_count = 0
+    dropped_ts = None
+
+    # In-memory counter for logs dropped for being too small / low-signal.
+    too_small_count = 0
+    too_small_ts = None
+
+    db_conn = connect_to_db(get_db_for_table("logs"))
 
     # Load filter patterns
     _refresh_filter_cache()
@@ -102,6 +137,14 @@ def handle_tcp_client(conn_sock, addr):
                     _flush_batch(logger, log_batch, db_conn)
                     log_batch = []
                     last_flush = time.monotonic()
+                if dropped_count:
+                    record_silently_dropped(dropped_count, dropped_ts)
+                    dropped_count = 0
+                    dropped_ts = None
+                if too_small_count:
+                    record_discarded_too_small(too_small_count, too_small_ts)
+                    too_small_count = 0
+                    too_small_ts = None
                 # Refresh filter cache periodically
                 if time.monotonic() - last_filter_refresh > _filter_cache_ttl:
                     _refresh_filter_cache()
@@ -122,7 +165,14 @@ def handle_tcp_client(conn_sock, addr):
 
                 # Check if message matches any filter pattern
                 if _should_filter_message(parsed["message"]):
-                    record_silently_dropped(parsed["received_at"])
+                    dropped_count += 1
+                    dropped_ts = parsed["received_at"]
+                    continue
+
+                # Drop messages that are too small / low-signal
+                if not _is_meaningful_message(parsed["message"]):
+                    too_small_count += 1
+                    too_small_ts = parsed["received_at"]
                     continue
 
                 log_batch.append(
@@ -145,6 +195,14 @@ def handle_tcp_client(conn_sock, addr):
                     _flush_batch(logger, log_batch, db_conn)
                     log_batch = []
                     last_flush = time.monotonic()
+                    if dropped_count:
+                        record_silently_dropped(dropped_count, dropped_ts)
+                        dropped_count = 0
+                        dropped_ts = None
+                    if too_small_count:
+                        record_discarded_too_small(too_small_count, too_small_ts)
+                        too_small_count = 0
+                        too_small_ts = None
 
     except Exception as e:
         log_error(logger, f"[ERROR] TCP client handler error ({source_ip}): {e}")
@@ -152,6 +210,10 @@ def handle_tcp_client(conn_sock, addr):
         # Flush remaining
         if log_batch:
             _flush_batch(logger, log_batch, db_conn)
+        if dropped_count:
+            record_silently_dropped(dropped_count, dropped_ts)
+        if too_small_count:
+            record_discarded_too_small(too_small_count, too_small_ts)
         conn_sock.close()
         disconnect_from_db(db_conn)
 

@@ -4,14 +4,13 @@ import os
 import sqlite3
 import time
 
-from src.core.config import MITE_DB_PATH
+from src.core.config import MITE_DB_PATH, MITE_LOGS_DB_PATH
 from src.core.models import (
     CONST_CREATE_ACTIONS_SQL,
     CONST_CREATE_AI_API_CALLS_SQL,
     CONST_CREATE_ALERTS_SQL,
-    CONST_CREATE_DROPPED_STATS_SQL,
+    CONST_CREATE_EVENT_STATS_SQL,
     CONST_CREATE_LOGS_SQL,
-    CONST_CREATE_NOISE_STATS_SQL,
     CONST_CREATE_PATTERN_STATS_SQL,
     CONST_CREATE_PATTERNS_SQL,
     CONST_CREATE_SETTINGS_SQL,
@@ -24,17 +23,41 @@ MAX_RETRIES = 5
 RETRY_BACKOFF = 0.5
 
 
-def connect_to_db():
+def get_table_database_map():
+    """Return a mapping of table name -> backing database file path.
+
+    Tables not listed here are backed by MITE_DB_PATH (the main database).
+    This indirection is the single source of truth for which database file a
+    table lives in, so additional tables can be split into their own database
+    files in the future simply by adding an entry here.
+    """
+    return {
+        "logs": MITE_LOGS_DB_PATH,
+    }
+
+
+def get_db_for_table(table_name):
+    """Return the database file path that backs the given table.
+
+    Falls back to the main database (MITE_DB_PATH) for any table that is not
+    explicitly mapped to a separate file.
+    """
+    return get_table_database_map().get(table_name, MITE_DB_PATH)
+
+
+def connect_to_db(db_path=MITE_DB_PATH):
     logger = logging.getLogger(__name__)
-    if not os.path.exists(os.path.dirname(MITE_DB_PATH)):
-        os.makedirs(os.path.dirname(MITE_DB_PATH), exist_ok=True)
+    if db_path and os.path.dirname(db_path) and not os.path.exists(
+        os.path.dirname(db_path)
+    ):
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
     try:
-        conn = sqlite3.connect(MITE_DB_PATH)
+        conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout = 10000")
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
     except sqlite3.Error as e:
-        log_error(logger, f"[ERROR] Error connecting to database {MITE_DB_PATH}: {e}")
+        log_error(logger, f"[ERROR] Error connecting to database {db_path}: {e}")
         return None
 
 
@@ -141,10 +164,42 @@ def _seed_patterns_from_import_file(cursor):
     return inserted
 
 
+def _init_logs_database():
+    """Create the logs table in its own database file (see get_db_for_table)."""
+    logger = logging.getLogger(__name__)
+    logs_db_path = get_db_for_table("logs")
+    conn = None
+    try:
+        if (
+            logs_db_path
+            and os.path.dirname(logs_db_path)
+            and not os.path.exists(os.path.dirname(logs_db_path))
+        ):
+            os.makedirs(os.path.dirname(logs_db_path), exist_ok=True)
+        conn = sqlite3.connect(logs_db_path)
+        conn.execute("PRAGMA busy_timeout = 10000")
+        cursor = conn.cursor()
+        cursor.executescript(CONST_CREATE_LOGS_SQL)
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        conn.commit()
+        log_info(
+            logger, f"[INFO] Logs database initialized successfully at {logs_db_path}"
+        )
+    except sqlite3.Error as e:
+        log_error(logger, f"[ERROR] Error initializing logs database: {e}")
+    finally:
+        if conn:
+            disconnect_from_db(conn)
+
+
 def init_database():
     logger = logging.getLogger(__name__)
     conn = None
     db_existed = os.path.exists(MITE_DB_PATH)
+
+    # Logs live in their own self-contained database file.
+    _init_logs_database()
+
     try:
         conn = sqlite3.connect(MITE_DB_PATH)
         conn.execute("PRAGMA busy_timeout = 10000")
@@ -152,12 +207,10 @@ def init_database():
         cursor.execute("DROP TABLE IF EXISTS hosts")
         for sql in [
             CONST_CREATE_PATTERNS_SQL,
-            CONST_CREATE_LOGS_SQL,
             CONST_CREATE_ALERTS_SQL,
             CONST_CREATE_ACTIONS_SQL,
             CONST_CREATE_PATTERN_STATS_SQL,
-            CONST_CREATE_NOISE_STATS_SQL,
-            CONST_CREATE_DROPPED_STATS_SQL,
+            CONST_CREATE_EVENT_STATS_SQL,
             CONST_CREATE_AI_API_CALLS_SQL,
             CONST_CREATE_SETTINGS_SQL,
         ]:
@@ -364,7 +417,7 @@ def insert_log(
     received_at, source_ip, host, facility, severity, program, pid, message, raw_message
 ):
     def _insert():
-        conn = connect_to_db()
+        conn = connect_to_db(get_db_for_table("logs"))
         if not conn:
             return None
         try:
@@ -401,7 +454,7 @@ def insert_logs_batch(logs, conn=None):
 
     own_conn = conn is None
     if own_conn:
-        conn = connect_to_db()
+        conn = connect_to_db(get_db_for_table("logs"))
         if not conn:
             return
 
@@ -422,7 +475,7 @@ def insert_logs_batch(logs, conn=None):
 
 
 def get_unprocessed_logs(limit=500):
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return []
     try:
@@ -456,7 +509,7 @@ def mark_logs_processed(log_ids, pattern_id=None):
         return
 
     def _mark():
-        conn = connect_to_db()
+        conn = connect_to_db(get_db_for_table("logs"))
         if not conn:
             return
         try:
@@ -490,7 +543,7 @@ def get_logs(
     start=None,
     end=None,
 ):
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return [], 0
     try:
@@ -553,7 +606,7 @@ def get_logs(
 
 
 def get_recent_logs(after_id=0, limit=50):
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return []
     try:
@@ -583,7 +636,7 @@ def get_recent_logs(after_id=0, limit=50):
 
 
 def get_logs_by_pattern(pattern_id, limit=100, offset=0):
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return [], 0
     try:
@@ -1329,18 +1382,28 @@ def get_stats():
     try:
         cursor = conn.cursor()
 
-        cursor.execute(
-            "SELECT COUNT(*) FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', '-1 hour')"
-        )
-        logs_last_hour = cursor.fetchone()[0]
+        # Logs live in their own database file.
+        logs_last_hour = 0
+        logs_last_24h = 0
+        total_logs = 0
+        logs_conn = connect_to_db(get_db_for_table("logs"))
+        if logs_conn:
+            try:
+                logs_cursor = logs_conn.cursor()
+                logs_cursor.execute(
+                    "SELECT COUNT(*) FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', '-1 hour')"
+                )
+                logs_last_hour = logs_cursor.fetchone()[0]
 
-        cursor.execute(
-            "SELECT COUNT(*) FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', '-24 hours')"
-        )
-        logs_last_24h = cursor.fetchone()[0]
+                logs_cursor.execute(
+                    "SELECT COUNT(*) FROM logs WHERE datetime(received_at) >= datetime('now', 'localtime', '-24 hours')"
+                )
+                logs_last_24h = logs_cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM logs")
-        total_logs = cursor.fetchone()[0]
+                logs_cursor.execute("SELECT COUNT(*) FROM logs")
+                total_logs = logs_cursor.fetchone()[0]
+            finally:
+                disconnect_from_db(logs_conn)
 
         cursor.execute(
             "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
@@ -1395,6 +1458,9 @@ def get_stats():
         db_size = 0
         if os.path.exists(MITE_DB_PATH):
             db_size = os.path.getsize(MITE_DB_PATH)
+        logs_db_path = get_db_for_table("logs")
+        if logs_db_path != MITE_DB_PATH and os.path.exists(logs_db_path):
+            db_size += os.path.getsize(logs_db_path)
 
         cursor.execute(
             "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', 'localtime', '-24 hours')"
@@ -1531,31 +1597,16 @@ def delete_setting(key):
     execute_with_retry(_delete)
 
 
-def increment_discarded_too_small_count():
-    """Increment the count of logs dropped for insufficient meaningful content."""
+def record_discarded_too_small(count, timestamp):
+    """Record a batch of logs dropped at the listener for being too small.
 
-    def _increment():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-                ("discarded_too_small_count", "0"),
-            )
-            cursor.execute(
-                """UPDATE settings
-                   SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1,
-                       updated_at = datetime('now', 'localtime')
-                   WHERE key = ?""",
-                ("discarded_too_small_count",),
-            )
-            conn.commit()
-        finally:
-            disconnect_from_db(conn)
+    Adds ``count`` to both the hourly event_stats 'too_small' bucket and the
+    running discarded_too_small_count total in a single transaction. No-op when
+    count is not positive.
+    """
+    _record_event_stat_with_total("too_small", "discarded_too_small_count", count, timestamp)
 
-    execute_with_retry(_increment)
+
 
 
 def get_all_settings():
@@ -1582,7 +1633,7 @@ def delete_logs(log_ids):
         return
 
     def _delete():
-        conn = connect_to_db()
+        conn = connect_to_db(get_db_for_table("logs"))
         if not conn:
             return
         try:
@@ -1603,7 +1654,7 @@ def delete_logs_by_pattern_id(pattern_id):
     """Delete all logs associated with a specific pattern. Returns count deleted."""
 
     def _delete():
-        conn = connect_to_db()
+        conn = connect_to_db(get_db_for_table("logs"))
         if not conn:
             return 0
         try:
@@ -1622,15 +1673,31 @@ def delete_logs_for_noise_patterns():
     """Delete all logs associated with patterns marked as noise. Returns count deleted."""
 
     def _delete():
-        conn = connect_to_db()
+        # Patterns live in the main DB; logs live in their own DB. Resolve the
+        # noise pattern IDs first, then delete the matching logs separately.
+        main_conn = connect_to_db()
+        if not main_conn:
+            return 0
+        try:
+            cursor = main_conn.cursor()
+            cursor.execute("SELECT id FROM patterns WHERE user_override = 'noise'")
+            pattern_ids = [row[0] for row in cursor.fetchall()]
+        finally:
+            disconnect_from_db(main_conn)
+
+        if not pattern_ids:
+            return 0
+
+        conn = connect_to_db(get_db_for_table("logs"))
         if not conn:
             return 0
         try:
             cursor = conn.cursor()
-            # Delete logs whose pattern_id has user_override = 'noise'
-            cursor.execute("""DELETE FROM logs WHERE pattern_id IN (
-                   SELECT id FROM patterns WHERE user_override = 'noise'
-                )""")
+            placeholders = ",".join("?" for _ in pattern_ids)
+            cursor.execute(
+                f"DELETE FROM logs WHERE pattern_id IN ({placeholders})",
+                pattern_ids,
+            )
             deleted = cursor.rowcount
             conn.commit()
             return deleted
@@ -1641,7 +1708,7 @@ def delete_logs_for_noise_patterns():
 
 
 def delete_old_logs(days):
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return 0
     try:
@@ -1658,7 +1725,7 @@ def delete_old_logs(days):
 
 
 def delete_all_logs():
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return 0
     try:
@@ -1707,13 +1774,15 @@ def delete_pattern(pattern_id):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM pattern_stats WHERE pattern_id = ?", (pattern_id,))
         cursor.execute("DELETE FROM alerts WHERE pattern_id = ?", (pattern_id,))
-        cursor.execute("DELETE FROM logs WHERE pattern_id = ?", (pattern_id,))
         cursor.execute("DELETE FROM patterns WHERE id = ?", (pattern_id,))
         deleted = cursor.rowcount > 0
         conn.commit()
-        return deleted
     finally:
         disconnect_from_db(conn)
+
+    # Logs live in their own database file.
+    delete_logs_by_pattern_id(pattern_id)
+    return deleted
 
 
 def delete_all_patterns():
@@ -1724,13 +1793,15 @@ def delete_all_patterns():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM pattern_stats")
         cursor.execute("DELETE FROM alerts")
-        cursor.execute("DELETE FROM logs")
         cursor.execute("DELETE FROM patterns")
         deleted = cursor.rowcount
         conn.commit()
-        return deleted
     finally:
         disconnect_from_db(conn)
+
+    # Logs live in their own database file.
+    delete_all_logs()
+    return deleted
 
 
 def reset_all_pattern_hit_counts():
@@ -1772,15 +1843,25 @@ def delete_old_patterns(days):
             pattern_ids,
         )
         cursor.execute(
-            f"DELETE FROM logs WHERE pattern_id IN ({placeholders})",
-            pattern_ids,
-        )
-        cursor.execute(
             f"DELETE FROM patterns WHERE id IN ({placeholders})",
             pattern_ids,
         )
         deleted = cursor.rowcount
         conn.commit()
+
+        # Logs live in their own database file; delete them separately.
+        logs_conn = connect_to_db(get_db_for_table("logs"))
+        if logs_conn:
+            try:
+                logs_cursor = logs_conn.cursor()
+                logs_cursor.execute(
+                    f"DELETE FROM logs WHERE pattern_id IN ({placeholders})",
+                    pattern_ids,
+                )
+                logs_conn.commit()
+            finally:
+                disconnect_from_db(logs_conn)
+
         return deleted
     finally:
         disconnect_from_db(conn)
@@ -1933,7 +2014,7 @@ def get_all_pattern_stats(hours=12):
 
 
 def get_hourly_log_counts(hours=24):
-    conn = connect_to_db()
+    conn = connect_to_db(get_db_for_table("logs"))
     if not conn:
         return []
     try:
@@ -1986,38 +2067,29 @@ def get_hourly_new_pattern_counts(hours=24):
         disconnect_from_db(conn)
 
 
-def increment_noise_stat(timestamp):
-    def _upsert():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """INSERT INTO noise_stats (hour_bucket, hit_count)
-                   VALUES (strftime('%Y-%m-%d %H:00:00', ?), 1)
-                   ON CONFLICT(hour_bucket)
-                   DO UPDATE SET hit_count = hit_count + 1""",
-                (timestamp,),
-            )
-            conn.commit()
-        finally:
-            disconnect_from_db(conn)
-
-    execute_with_retry(_upsert)
+def _increment_event_stat(cursor, stat_type, count, timestamp):
+    """Upsert an hourly event_stats bucket for the given stat_type using cursor."""
+    cursor.execute(
+        """INSERT INTO event_stats (stat_type, hour_bucket, hit_count)
+           VALUES (?, strftime('%Y-%m-%d %H:00:00', ?), ?)
+           ON CONFLICT(stat_type, hour_bucket)
+           DO UPDATE SET hit_count = hit_count + excluded.hit_count""",
+        (stat_type, timestamp, count),
+    )
 
 
-def get_hourly_noise_counts(hours=24):
+def _get_hourly_event_counts(stat_type, hours):
+    """Return gap-filled hourly counts for one stat_type over the last `hours`."""
     conn = connect_to_db()
     if not conn:
         return []
     try:
         cursor = conn.cursor()
         cursor.execute(
-            """SELECT hour_bucket, hit_count FROM noise_stats
-               WHERE hour_bucket >= datetime('now', 'localtime', ?)
+            """SELECT hour_bucket, hit_count FROM event_stats
+               WHERE stat_type = ? AND hour_bucket >= datetime('now', 'localtime', ?)
                ORDER BY hour_bucket ASC""",
-            (f"-{hours} hours",),
+            (stat_type, f"-{hours} hours"),
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
@@ -2025,14 +2097,45 @@ def get_hourly_noise_counts(hours=24):
         disconnect_from_db(conn)
 
 
-def delete_old_noise_stats(hours=100):
+def _record_event_stat_with_total(stat_type, setting_key, count, timestamp):
+    """Add `count` to an hourly event_stats bucket and a running settings total."""
+    if count <= 0:
+        return
+
+    def _record():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            _increment_event_stat(cursor, stat_type, count, timestamp)
+            cursor.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (setting_key, "0"),
+            )
+            cursor.execute(
+                """UPDATE settings
+                   SET value = CAST(COALESCE(value, '0') AS INTEGER) + ?,
+                       updated_at = datetime('now', 'localtime')
+                   WHERE key = ?""",
+                (count, setting_key),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_record)
+
+
+def delete_old_event_stats(hours=100):
+    """Delete event_stats rows (all stat types) older than `hours`."""
     conn = connect_to_db()
     if not conn:
         return 0
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM noise_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
+            "DELETE FROM event_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
             (f"-{hours} hours",),
         )
         deleted = cursor.rowcount
@@ -2042,42 +2145,33 @@ def delete_old_noise_stats(hours=100):
         disconnect_from_db(conn)
 
 
-def record_silently_dropped(timestamp):
-    """Record a log silently dropped at the listener.
-
-    Increments both the hourly dropped_stats bucket and the running
-    silently_dropped_count total in a single transaction.
-    """
-
-    def _record():
+def increment_noise_stat(timestamp):
+    def _upsert():
         conn = connect_to_db()
         if not conn:
             return
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                """INSERT INTO dropped_stats (hour_bucket, hit_count)
-                   VALUES (strftime('%Y-%m-%d %H:00:00', ?), 1)
-                   ON CONFLICT(hour_bucket)
-                   DO UPDATE SET hit_count = hit_count + 1""",
-                (timestamp,),
-            )
-            cursor.execute(
-                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-                ("silently_dropped_count", "0"),
-            )
-            cursor.execute(
-                """UPDATE settings
-                   SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1,
-                       updated_at = datetime('now', 'localtime')
-                   WHERE key = ?""",
-                ("silently_dropped_count",),
-            )
+            _increment_event_stat(cursor, "noise", 1, timestamp)
             conn.commit()
         finally:
             disconnect_from_db(conn)
 
-    execute_with_retry(_record)
+    execute_with_retry(_upsert)
+
+
+def get_hourly_noise_counts(hours=24):
+    return _get_hourly_event_counts("noise", hours)
+
+
+def record_silently_dropped(count, timestamp):
+    """Record a batch of logs silently dropped at the listener.
+
+    Adds ``count`` to both the hourly event_stats 'dropped' bucket and the
+    running silently_dropped_count total in a single transaction. No-op when
+    count is not positive.
+    """
+    _record_event_stat_with_total("dropped", "silently_dropped_count", count, timestamp)
 
 
 def get_silently_dropped_count():
@@ -2098,36 +2192,27 @@ def get_silently_dropped_count():
 
 
 def get_hourly_dropped_counts(hours=24):
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """SELECT hour_bucket, hit_count FROM dropped_stats
-               WHERE hour_bucket >= datetime('now', 'localtime', ?)
-               ORDER BY hour_bucket ASC""",
-            (f"-{hours} hours",),
-        )
-        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
-        return _fill_hour_gaps(raw, hours)
-    finally:
-        disconnect_from_db(conn)
+    return _get_hourly_event_counts("dropped", hours)
 
 
-def delete_old_dropped_stats(hours=100):
+def get_discarded_too_small_count():
+    """Return the running total of logs dropped at the listener for being too small."""
     conn = connect_to_db()
     if not conn:
         return 0
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM dropped_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
-            (f"-{hours} hours",),
+            "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
+            ("discarded_too_small_count",),
         )
-        deleted = cursor.rowcount
-        conn.commit()
-        return deleted
+        row = cursor.fetchone()
+        return row[0] if row else 0
     finally:
         disconnect_from_db(conn)
+
+
+def get_hourly_too_small_counts(hours=24):
+    return _get_hourly_event_counts("too_small", hours)
+
 

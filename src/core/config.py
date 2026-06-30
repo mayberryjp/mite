@@ -19,11 +19,16 @@ MITE_SYSLOG_UDP_PORT = int(os.getenv("MITE_SYSLOG_UDP_PORT", "1514"))
 MITE_SYSLOG_TCP_HOST = os.getenv("MITE_SYSLOG_TCP_HOST", "0.0.0.0")
 MITE_SYSLOG_TCP_PORT = int(os.getenv("MITE_SYSLOG_TCP_PORT", "1515"))
 
-# Database
-MITE_DB_PATH = os.getenv("MITE_DB_PATH", "/app/data/Mite.sqlite")
+# Database — fixed location, not configurable.
+MITE_DATA_DIR = "/app/data"
+MITE_DB_PATH = "/app/data/mite.db"
 
-# Logs directory
-MITE_LOGS_DIR = os.getenv("MITE_LOGS_DIR", "/app/logs")
+# Logs database — logs are stored in their own self-contained database file,
+# separate from patterns/alerts/stats/etc.
+MITE_LOGS_DB_PATH = "/app/data/logs.db"
+
+# Logs directory — fixed location, not configurable.
+MITE_LOGS_DIR = "/app/logs"
 
 # AI Discovery
 AI_API_BASE_URL = os.getenv("AI_API_BASE_URL", "")

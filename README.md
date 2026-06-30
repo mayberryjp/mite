@@ -90,8 +90,6 @@ services:
       - MITE_SYSLOG_TCP_PORT=1515
       - MITE_MCP_HOST=0.0.0.0
       - MITE_MCP_PORT=8030
-      - MITE_DB_PATH=/app/data/Mite.sqlite
-      - MITE_LOGS_DIR=/app/logs
       - AI_API_BASE_URL=
       - AI_API_KEY=
       - AI_MODEL=
@@ -139,12 +137,15 @@ All configuration is via **environment variables**. Set them in your shell or `d
 | `MITE_SYSLOG_TCP_PORT` | `1515` | TCP listener port |
 | `MITE_MCP_HOST` | `0.0.0.0` | MCP server bind address |
 | `MITE_MCP_PORT` | `8030` | MCP server port |
-| `MITE_DB_PATH` | `/app/data/Mite.sqlite` | SQLite database location |
-| `MITE_LOGS_DIR` | `/app/logs` | Application logs directory |
 | `AI_API_BASE_URL` | `` | OpenAI-compatible API endpoint (required for AI) |
 | `AI_API_KEY` | `` | API key for LLM (required for AI) |
 | `AI_MODEL` | `` | Model name (e.g., `gpt-4-turbo-preview`) |
 | `TZ` | `UTC` | Timezone for timestamps |
+
+Storage paths are fixed inside the container and are not configurable: the main
+database is at `/app/data/mite.db`, the logs database at `/app/data/logs.db`, and
+application logs are written under `/app/logs`. Mount a volume at `/app/data` to
+persist data.
 
 ### AI Configuration
 

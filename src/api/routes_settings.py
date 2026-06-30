@@ -5,6 +5,7 @@ from bottle import request, response
 
 from src.core.db import (
     delete_setting,
+    get_discarded_too_small_count,
     get_setting,
     get_silently_dropped_count,
     set_setting,
@@ -206,6 +207,11 @@ READ_ONLY_SETTINGS = {
         "default": 0,
         "type": "int",
     },
+    "discarded_too_small_count": {
+        "description": "Running total of logs dropped at the listener for being too small / low-signal (below min_message_length or too few real words).",
+        "default": 0,
+        "type": "int",
+    },
 }
 
 
@@ -223,6 +229,9 @@ def _get_read_only_setting_value(key):
 
     if key == "silently_dropped_count":
         return get_silently_dropped_count()
+
+    if key == "discarded_too_small_count":
+        return get_discarded_too_small_count()
 
     raise ValueError(f"Unknown read-only setting: {key}")
 
