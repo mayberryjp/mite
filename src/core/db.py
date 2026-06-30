@@ -47,8 +47,10 @@ def get_db_for_table(table_name):
 
 def connect_to_db(db_path=MITE_DB_PATH):
     logger = logging.getLogger(__name__)
-    if db_path and os.path.dirname(db_path) and not os.path.exists(
-        os.path.dirname(db_path)
+    if (
+        db_path
+        and os.path.dirname(db_path)
+        and not os.path.exists(os.path.dirname(db_path))
     ):
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
     try:
@@ -1604,9 +1606,9 @@ def record_discarded_too_small(count, timestamp):
     running discarded_too_small_count total in a single transaction. No-op when
     count is not positive.
     """
-    _record_event_stat_with_total("too_small", "discarded_too_small_count", count, timestamp)
-
-
+    _record_event_stat_with_total(
+        "too_small", "discarded_too_small_count", count, timestamp
+    )
 
 
 def get_all_settings():
@@ -2214,5 +2216,3 @@ def get_discarded_too_small_count():
 
 def get_hourly_too_small_counts(hours=24):
     return _get_hourly_event_counts("too_small", hours)
-
-
