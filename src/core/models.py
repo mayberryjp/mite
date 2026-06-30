@@ -109,6 +109,15 @@ CONST_CREATE_NOISE_STATS_SQL = """
     CREATE INDEX IF NOT EXISTS idx_noise_stats_hour_bucket ON noise_stats(hour_bucket);
 """
 
+CONST_CREATE_DROPPED_STATS_SQL = """
+    CREATE TABLE IF NOT EXISTS dropped_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hour_bucket TEXT NOT NULL UNIQUE,
+        hit_count INTEGER DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_dropped_stats_hour_bucket ON dropped_stats(hour_bucket);
+"""
+
 CONST_CREATE_SETTINGS_SQL = """
     CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY NOT NULL,

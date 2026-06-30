@@ -3,7 +3,12 @@ import logging
 
 from bottle import request, response
 
-from src.core.db import delete_setting, get_setting, set_setting
+from src.core.db import (
+    delete_setting,
+    get_setting,
+    get_silently_dropped_count,
+    set_setting,
+)
 from src.core.models import DEFAULT_AI_CUSTOM_TOKENS, DEFAULT_AI_PROMPT_TEMPLATE
 from src.utils.locallogging import log_error, log_info
 
@@ -195,7 +200,12 @@ READ_ONLY_SETTINGS = {
         "description": "AI-provided regex efficiency score (0-100) based on duplicate/similar pattern review.",
         "default": 0.0,
         "type": "float",
-    }
+    },
+    "silently_dropped_count": {
+        "description": "Running total of logs silently dropped at the listener because they matched a filter-at-listener pattern.",
+        "default": 0,
+        "type": "int",
+    },
 }
 
 
@@ -210,6 +220,9 @@ def _get_ai_efficiency_score():
 def _get_read_only_setting_value(key):
     if key == "ai_efficiency_score":
         return _get_ai_efficiency_score()
+
+    if key == "silently_dropped_count":
+        return get_silently_dropped_count()
 
     raise ValueError(f"Unknown read-only setting: {key}")
 

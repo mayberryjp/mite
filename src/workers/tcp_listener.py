@@ -17,6 +17,7 @@ from src.core.db import (
     disconnect_from_db,
     get_filter_patterns,
     insert_logs_batch,
+    record_silently_dropped,
 )
 from src.core.settings_loader import get_float_setting, get_int_setting
 from src.core.syslog_parser import parse_syslog_message
@@ -121,6 +122,7 @@ def handle_tcp_client(conn_sock, addr):
 
                 # Check if message matches any filter pattern
                 if _should_filter_message(parsed["message"]):
+                    record_silently_dropped(parsed["received_at"])
                     continue
 
                 log_batch.append(

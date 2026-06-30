@@ -9,6 +9,7 @@ from src.core.models import (
     CONST_CREATE_ACTIONS_SQL,
     CONST_CREATE_AI_API_CALLS_SQL,
     CONST_CREATE_ALERTS_SQL,
+    CONST_CREATE_DROPPED_STATS_SQL,
     CONST_CREATE_LOGS_SQL,
     CONST_CREATE_NOISE_STATS_SQL,
     CONST_CREATE_PATTERN_STATS_SQL,
@@ -156,6 +157,7 @@ def init_database():
             CONST_CREATE_ACTIONS_SQL,
             CONST_CREATE_PATTERN_STATS_SQL,
             CONST_CREATE_NOISE_STATS_SQL,
+            CONST_CREATE_DROPPED_STATS_SQL,
             CONST_CREATE_AI_API_CALLS_SQL,
             CONST_CREATE_SETTINGS_SQL,
         ]:
@@ -182,6 +184,10 @@ def init_database():
         cursor.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("discarded_too_small_count", "0"),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+            ("silently_dropped_count", "0"),
         )
         # Seed Discord notification settings if not already set
         cursor.execute(
@@ -687,6 +693,38 @@ def increment_pattern_hit(pattern_id, timestamp):
             disconnect_from_db(conn)
 
     execute_with_retry(_update)
+
+
+def get_hit_count_sum_by_classification():
+    """Return summed pattern hit counts grouped by effective classification.
+
+    Effective classification is the user override when present, otherwise the
+    AI classification. Returns a list of {classification, hit_count_sum,
+    pattern_count} dicts ordered by hit_count_sum descending.
+    """
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT COALESCE(user_override, classification, 'pending') AS effective,
+                      COALESCE(SUM(hit_count), 0) AS hit_sum,
+                      COUNT(*) AS pattern_count
+               FROM patterns
+               GROUP BY effective
+               ORDER BY hit_sum DESC"""
+        )
+        return [
+            {
+                "classification": r[0],
+                "hit_count_sum": r[1],
+                "pattern_count": r[2],
+            }
+            for r in cursor.fetchall()
+        ]
+    finally:
+        disconnect_from_db(conn)
 
 
 def get_pending_patterns(limit=50):
@@ -1312,6 +1350,13 @@ def get_stats():
         discarded_too_small_count = row[0] if row else 0
 
         cursor.execute(
+            "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
+            ("silently_dropped_count",),
+        )
+        row = cursor.fetchone()
+        silently_dropped_count = row[0] if row else 0
+
+        cursor.execute(
             "SELECT COUNT(*) FROM alerts WHERE created_at >= datetime('now', 'localtime', '-1 hour')"
         )
         alerts_last_hour = cursor.fetchone()[0]
@@ -1374,6 +1419,7 @@ def get_stats():
             "logs_last_24h": logs_last_24h,
             "total_logs": total_logs,
             "discarded_too_small_count": discarded_too_small_count,
+            "silently_dropped_count": silently_dropped_count,
             "alerts_last_hour": alerts_last_hour,
             "alerts_last_24h": alerts_last_24h,
             "total_alerts": total_alerts,
@@ -1994,3 +2040,94 @@ def delete_old_noise_stats(hours=100):
         return deleted
     finally:
         disconnect_from_db(conn)
+
+
+def record_silently_dropped(timestamp):
+    """Record a log silently dropped at the listener.
+
+    Increments both the hourly dropped_stats bucket and the running
+    silently_dropped_count total in a single transaction.
+    """
+
+    def _record():
+        conn = connect_to_db()
+        if not conn:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO dropped_stats (hour_bucket, hit_count)
+                   VALUES (strftime('%Y-%m-%d %H:00:00', ?), 1)
+                   ON CONFLICT(hour_bucket)
+                   DO UPDATE SET hit_count = hit_count + 1""",
+                (timestamp,),
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                ("silently_dropped_count", "0"),
+            )
+            cursor.execute(
+                """UPDATE settings
+                   SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1,
+                       updated_at = datetime('now', 'localtime')
+                   WHERE key = ?""",
+                ("silently_dropped_count",),
+            )
+            conn.commit()
+        finally:
+            disconnect_from_db(conn)
+
+    execute_with_retry(_record)
+
+
+def get_silently_dropped_count():
+    """Return the running total of logs silently dropped at the listener."""
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
+            ("silently_dropped_count",),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else 0
+    finally:
+        disconnect_from_db(conn)
+
+
+def get_hourly_dropped_counts(hours=24):
+    conn = connect_to_db()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT hour_bucket, hit_count FROM dropped_stats
+               WHERE hour_bucket >= datetime('now', 'localtime', ?)
+               ORDER BY hour_bucket ASC""",
+            (f"-{hours} hours",),
+        )
+        raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
+        return _fill_hour_gaps(raw, hours)
+    finally:
+        disconnect_from_db(conn)
+
+
+def delete_old_dropped_stats(hours=100):
+    conn = connect_to_db()
+    if not conn:
+        return 0
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM dropped_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
+            (f"-{hours} hours",),
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    finally:
+        disconnect_from_db(conn)
+

@@ -520,6 +520,8 @@ def process_logs():
 
     log_info(logger, f"[INFO] Processing {len(logs)} unprocessed logs")
 
+    start_time = time.monotonic()
+
     for log_entry in logs:
         try:
             should_continue = process_log(log_entry)
@@ -535,9 +537,8 @@ def process_logs():
                 f"[ERROR] Error processing log {log_entry.get('id')}: {type(e).__name__}: {e}",
             )
             # Don't mark as processed — retry next cycle
-            return
-
-    log_info(logger, f"[INFO] Processed {len(logs)} logs")
+    elapsed = time.monotonic() - start_time
+    log_info(logger, f"[INFO] Processed {len(logs)} logs in {elapsed:.2f} seconds")
 
 
 if __name__ == "__main__":

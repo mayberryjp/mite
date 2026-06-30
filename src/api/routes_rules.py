@@ -14,6 +14,7 @@ from src.core.db import (
     delete_pattern,
     get_all_pattern_stats,
     get_all_patterns,
+    get_hit_count_sum_by_classification,
     get_hourly_new_pattern_counts,
     get_logs_by_pattern,
     get_pattern_by_id,
@@ -272,6 +273,22 @@ def setup_patterns_routes(app):
             return json.dumps({"status": "ok", "updated": updated})
         except Exception as e:
             log_error(logger, f"[ERROR] Failed to reset pattern hit counts: {e}")
+            response.status = 500
+            return {"error": str(e)}
+
+    @app.route("/api/patterns/hits-by-classification", method=["GET"])
+    def api_get_hits_by_classification():
+        logger = logging.getLogger(__name__)
+        try:
+            items = get_hit_count_sum_by_classification()
+            response.content_type = "application/json"
+            log_info(
+                logger,
+                f"[INFO] Retrieved hit count sums for {len(items)} classifications",
+            )
+            return json.dumps({"items": items})
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to get hits by classification: {e}")
             response.status = 500
             return {"error": str(e)}
 
