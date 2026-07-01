@@ -39,21 +39,28 @@ Traditional syslog monitoring requires you to write rules. Lots of rules. And th
 - Tracks alert counts and severity by host
 
 ### 🗄️ Lightweight Storage
-- SQLite database with optimized indexing
+- Two self-contained SQLite databases: high-volume `logs.db` for raw logs and `mite.db` for everything else (patterns, alerts, actions, stats, settings)
+- A table→database mapping layer so tables can be split into separate files as they grow
 - Configurable log and alert retention periods
-- Database size monitoring via API
-- WAL mode for concurrent access
+- Per-database size monitoring via the settings API (`mite_db_size_bytes`, `logs_db_size_bytes`)
+- WAL mode with busy-timeout retries for concurrent access
 
 ### 🔌 REST API
-- Comprehensive API for logs, alerts, patterns, and hosts
+- Comprehensive API for logs, alerts, patterns, actions, and settings
 - Paginated queries with flexible filtering
-- Pattern statistics and pattern-specific insights
+- Pattern statistics, hourly counters, and pattern-specific insights
+- Runtime-tunable settings stored in the database and editable via the API
 - Dashboard stats endpoint for real-time monitoring
 
+### 🧰 MCP Server
+- Streamable HTTP JSON-RPC endpoint at `/mcp` for AI agents and MCP clients
+- Exposes tools for browsing patterns, logs, alerts, stats, settings, and actions
+- Lets an assistant classify pending patterns and set pattern overrides programmatically
+
 ### 📦 Container-Ready
-- Single Docker container with supervisord
-- Multiple independent workers (UDP listener, TCP listener, processor, AI worker, retention worker)
-- Volume-based persistent storage
+- Single Docker container with supervisord managing seven independent processes
+- Workers: UDP listener, TCP listener, processor, AI worker, retention worker, plus API and MCP servers
+- Volume-based persistent storage (mount `/app/data`)
 - Production-ready Dockerfile and docker-compose
 
 ---
@@ -164,39 +171,48 @@ Mite also supports any OpenAI-compatible API (local LLMs, Ollama, Azure OpenAI, 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Docker Container                          │
-├─────────────────────────────────────────────────────────────┤
+┌──────────────────────────────────────────────────────────────┐
+│                     Docker Container                          │
+├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  supervisord (Process Manager)                       │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │                                                      │   │
-│  │  • UDP Listener (port 1514) ──┐                    │   │
-│  │  • TCP Listener (port 1515) ──┤                    │   │
-│  │                               ├─→ SQLite (logs)    │   │
-│  │  • Processor                  │   ├─→ patterns     │   │
-│  │  • AI Worker                  │   ├─→ alerts       │   │
-│  │  • Retention Worker      ─────┴──→ └─→ hosts       │   │
-│  │                                                      │   │
-│  │  • API Server (port 4060)                           │   │
-│  │    └─→ REST endpoints (logs, alerts, patterns...)   │   │
-│  │  • MCP Server (port 8030)                           │   │
-│  │    └─→ Streamable HTTP JSON-RPC tools on /mcp       │   │
-│  │                                                      │   │
-│  └──────────────────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  supervisord (Process Manager)                         │ │
+│  ├────────────────────────────────────────────────────────┤ │
+│  │                                                        │ │
+│  │  • UDP Listener (port 1514) ──┐                       │ │
+│  │  • TCP Listener (port 1515) ──┴─→ logs.db (logs)      │ │
+│  │                                                        │ │
+│  │  • Processor ────────────────────┐                    │ │
+│  │  • AI Worker ────────────────────┤                    │ │
+│  │  • Retention Worker ─────────────┴─→ mite.db          │ │
+│  │        (patterns, alerts, actions, stats, settings)    │ │
+│  │                                                        │ │
+│  │  • API Server (port 4060)                              │ │
+│  │    └─→ REST endpoints (logs, alerts, patterns,         │ │
+│  │        actions, settings, stats...)                    │ │
+│  │  • MCP Server (port 8030)                              │ │
+│  │    └─→ Streamable HTTP JSON-RPC tools on /mcp          │ │
+│  │                                                        │ │
+│  └────────────────────────────────────────────────────────┘ │
 │                                                              │
-└─────────────────────────────────────────────────────────────┘
+│  Storage volume: /app/data (mite.db + logs.db)  /app/logs    │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+Data is split across **two SQLite files**: the high-volume `logs` table lives in
+`logs.db`, while patterns, alerts, actions, statistics, and settings live in
+`mite.db`. Code never hardcodes a path — it calls a table→database mapping helper
+so additional tables can be moved into their own files later.
 
 ### Data Flow
 
 ```
-Syslog Sources → UDP/TCP Listeners → SQLite logs table (processed=0)
+Syslog Sources → UDP/TCP Listeners → logs.db logs table (processed=0)
+     (drop too-small / filtered messages, tracked in counters)
                                            ↓
                         Processor extracts normalized pattern
                                            ↓
-                      Look up pattern in patterns table
+                      Look up pattern in patterns table (mite.db)
                            ↓                    ↓
                     Known Pattern          New Pattern
                    (increment hit)        (mark pending)
@@ -204,7 +220,7 @@ Syslog Sources → UDP/TCP Listeners → SQLite logs table (processed=0)
               Check effective classification   ↓
               (user_override > AI)    AI Worker classifies
                            ↓
-              critical/high → Create Alert
+              critical/high → Create Alert (+ optional Discord)
                            ↓
            Mark log processed + link to pattern
 
@@ -212,30 +228,110 @@ Syslog Sources → UDP/TCP Listeners → SQLite logs table (processed=0)
 
 ### Components
 
-- **UDP/TCP Listeners**: Accept RFC 3164 syslog messages, batch insert into database
-- **Processor**: Polls unprocessed logs every 10s, extracts patterns, creates alerts for critical/high patterns
-- **AI Worker**: Picks up pending patterns, sends to LLM in batches, stores classifications
-- **Retention Worker**: Deletes old logs and alerts based on configurable retention periods
-- **API Server**: Bottle + Waitress, serves REST endpoints for UI and external integrations
-- **MCP Server**: Bottle + Waitress JSON-RPC endpoint at `/mcp` for MCP tool access
+- **UDP/TCP Listeners**: Accept RFC 3164 syslog messages, batch insert into `logs.db`, and drop messages that are too small or match listener-side filters (tracked via drop counters)
+- **Processor**: Polls unprocessed logs every 10s, extracts patterns, records hourly statistics, and creates alerts for critical/high patterns
+- **AI Worker**: Picks up pending patterns, sends them to the LLM in batches, and stores classifications and explanations
+- **Retention Worker**: Deletes old logs, alerts, and statistics based on configurable retention periods
+- **API Server**: Bottle + Waitress, serves REST endpoints for the UI and external integrations
+- **MCP Server**: Bottle + Waitress JSON-RPC endpoint at `/mcp` exposing MCP tools
 
 ---
 
 ## 📡 API Endpoints
 
+**System**
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/health` | Health check |
 | `GET` | `/api/stats` | Dashboard statistics (total logs, alerts, patterns, DB size) |
+| `POST` | `/api/discord/test` | Test Discord webhook configuration |
+
+**Logs**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `GET` | `/api/logs` | Paginated logs with filtering by host, IP, program, severity |
 | `GET` | `/api/logs/recent` | Poll for newly received logs |
+| `DELETE` | `/api/logs` | Delete logs (with optional filters) |
+| `GET` | `/api/logs/hourly` | Hourly ingested-log counts |
+| `GET` | `/api/logs/noise/hourly` | Hourly counts of logs matched to noise patterns |
+| `GET` | `/api/logs/dropped/hourly` | Hourly counts of silently dropped logs |
+| `GET` | `/api/logs/too-small/hourly` | Hourly counts of logs discarded as too small |
+| `POST` | `/api/logs/cleanup-noise` | Delete stored logs belonging to noise patterns |
+
+**Alerts**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `GET` | `/api/alerts` | Paginated alerts with filtering |
-| `GET` | `/api/patterns` | All patterns with classifications |
+| `DELETE` | `/api/alerts` | Delete all alerts (with optional filters) |
+| `DELETE` | `/api/alerts/<id>` | Delete a single alert |
+| `GET` | `/api/alerts/hourly` | Hourly alert counts |
+
+**Patterns**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/patterns` | All patterns (filterable by classification) |
 | `GET` | `/api/patterns/<id>` | Single pattern details with sample message |
-| `PUT` | `/api/patterns/<id>` | Override pattern classification |
+| `PUT` | `/api/patterns/<id>` | Override a pattern's classification |
+| `DELETE` | `/api/patterns/<id>` | Delete a pattern and its logs |
+| `DELETE` | `/api/patterns` | Delete all patterns |
+| `POST` | `/api/patterns/export` | Export patterns to a JSON file |
+| `POST` | `/api/patterns/actions/reset-hit-counts` | Reset all pattern hit counts |
+| `GET` | `/api/patterns/hits-by-classification` | Hit-count totals grouped by effective classification |
+| `POST` | `/api/patterns/actions/low-to-noise` | Bulk-convert low patterns to noise |
+| `DELETE` | `/api/patterns/actions/delete-old/<days>` | Delete patterns not seen in N days |
+| `GET` | `/api/patterns/stats` | Pattern count summary by classification |
+| `GET` | `/api/patterns/hourly` | Hourly new-pattern counts |
+| `GET` | `/api/patterns/<id>/stats` | Per-pattern hourly statistics |
+| `GET` | `/api/patterns/<id>/logs` | Logs belonging to a pattern |
+
+**AI Classification**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `GET` | `/api/ai/pending` | Patterns awaiting AI classification |
 | `POST` | `/api/ai/classify` | Manually trigger AI classification |
-| `POST` | `/api/discord/test` | Test Discord webhook configuration |
+
+**Actions**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/actions` | List actions |
+| `POST` | `/api/actions` | Create an action |
+| `GET` | `/api/actions/<id>` | Get a single action |
+| `PUT` | `/api/actions/<id>` | Update an action |
+| `DELETE` | `/api/actions/<id>` | Delete an action |
+| `POST` | `/api/actions/acknowledge-all` | Acknowledge all actions |
+
+**Settings**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/settings` | List all editable and read-only settings |
+| `POST` | `/api/settings` | Create a setting |
+| `GET` | `/api/settings/<key>` | Get a single setting |
+| `PUT` / `POST` | `/api/settings/<key>` | Update a setting |
+| `POST` | `/api/settings/<key>/reset` | Reset a setting to its default |
+| `DELETE` | `/api/settings/<key>` | Delete a setting |
+
+---
+
+## 🧰 MCP Tools
+
+The MCP server exposes a Streamable HTTP JSON-RPC endpoint at `/mcp` (port 8030) so
+AI agents and MCP clients can inspect and manage Mite. Available tools:
+
+| Category | Tools |
+|----------|-------|
+| Patterns | `list_patterns`, `get_pattern`, `set_pattern_override`, `get_pattern_logs` |
+| AI | `list_pending_patterns`, `classify_pending_patterns` |
+| Logs & Alerts | `list_logs`, `list_alerts` |
+| Stats | `get_stats` |
+| Settings | `list_settings`, `get_setting`, `create_setting`, `update_setting`, `delete_setting` |
+| Actions | `list_actions`, `get_action`, `create_action`, `update_action`, `delete_action` |
 
 ---
 
@@ -306,19 +402,24 @@ Classification: low (normal system monitoring)
 mite/
 ├── src/
 │   ├── api/
-│   │   ├── server.py                 # Main Bottle app, route setup
-│   │   ├── routes_logs.py           # Log-related endpoints
-│   │   ├── routes_alerts.py         # Alert-related endpoints
-│   │   ├── routes_rules.py          # Pattern management
+│   │   ├── server.py                 # Main Bottle app, route setup, health/stats/discord
+│   │   ├── routes_logs.py           # Log endpoints (list, hourly counters, cleanup)
+│   │   ├── routes_alerts.py         # Alert endpoints
+│   │   ├── routes_rules.py          # Pattern management and bulk actions
 │   │   ├── routes_discovery.py      # AI classification triggers
-│   │   └── routes_settings.py       # User-editable settings
+│   │   ├── routes_actions.py        # Action management
+│   │   └── routes_settings.py       # Runtime-tunable settings
 │   ├── core/
-│   │   ├── config.py                 # Environment variable parsing
-│   │   ├── db.py                     # Database operations
+│   │   ├── config.py                 # Environment variable parsing (bootstrap config)
+│   │   ├── constants.py              # Shared constants
+│   │   ├── db.py                     # Database operations + table→database mapping
 │   │   ├── models.py                 # SQL schemas, AI prompt templates
+│   │   ├── settings_loader.py        # DB-backed runtime settings access
 │   │   ├── pattern_extractor.py      # Pattern normalization and hashing
 │   │   ├── syslog_parser.py          # RFC 3164 parser
+│   │   ├── syslog_forwarder.py       # Optional syslog forwarding
 │   │   ├── ai_discovery.py           # LLM integration
+│   │   ├── ai_request_log.py         # AI API call logging
 │   │   ├── discord.py                # Discord webhook
 │   │   └── retention.py              # Retention policy executor
 │   ├── workers/
@@ -326,14 +427,17 @@ mite/
 │   │   ├── tcp_listener.py          # TCP socket listener
 │   │   ├── processor.py             # Pattern extraction and alerting
 │   │   ├── ai_worker.py             # Batch AI classification
-│   │   └── retention_worker.py      # Cleanup old data
+│   │   ├── retention_worker.py      # Cleanup old data
+│   │   └── mcp_server.py            # MCP JSON-RPC server (/mcp)
 │   ├── utils/
 │   │   └── locallogging.py          # Logging helpers
 │   └── main.py                       # Initialization script
+├── third_party_integrations/         # Example integrations (e.g., Homepage)
 ├── Dockerfile                        # Container definition
 ├── docker-compose.yml               # Multi-container orchestration
 ├── supervisord.conf                 # Worker process config
 ├── requirements.txt                 # Python dependencies
+├── VERSION                           # Build version stamp
 └── README.md                        # This file
 ```
 

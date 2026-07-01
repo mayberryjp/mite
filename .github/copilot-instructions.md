@@ -8,11 +8,14 @@ Mite is a lightweight, hands-off syslog monitoring and alerting tool for homelab
 
 Mite runs as multiple independent processes managed by supervisord inside a single Docker container:
 
-- **`src.api.server`** — Bottle + Waitress REST API. Routes are split into `routes_logs`, `routes_alerts`, `routes_rules` (pattern management), and `routes_discovery` (AI classification).
+- **`src.api.server`** — Bottle + Waitress REST API. Routes are split into `routes_logs`, `routes_alerts`, `routes_rules` (pattern management), `routes_discovery` (AI classification), `routes_settings` (user-editable settings), and `routes_actions`.
 - **`src.workers.udp_listener`** / **`src.workers.tcp_listener`** — Socket listeners that parse incoming syslog (RFC 3164) and insert raw logs into the `logs` table.
 - **`src.workers.processor`** — Polls `logs` for unprocessed rows every 10 seconds, extracts a normalized pattern from each message, looks up or creates the pattern in the `patterns` table, and creates alerts for critical/high patterns.
 - **`src.workers.ai_worker`** — Periodically picks up pending (unclassified) patterns and sends them to an OpenAI-compatible API in batches for classification.
 - **`src.workers.retention_worker`** — Deletes logs and alerts older than configured retention periods.
+- **`src.workers.mcp_server`** — Bottle + Waitress Streamable HTTP JSON-RPC endpoint at `/mcp` (port 8030) exposing MCP tools.
+
+All seven processes are declared in `supervisord.conf` (working directory `/Mite` inside the container).
 
 ### Data flow
 
@@ -51,8 +54,10 @@ Instead of manual rules, Mite automatically identifies log patterns:
 ### Database access pattern
 Every DB operation opens a new `sqlite3.connect()`, does its work, and closes immediately — there is no connection pool or long-lived connection. Use `connect_to_db()` / `disconnect_from_db()` from `src.core.db`. Write operations that may hit lock contention should use `execute_with_retry()`.
 
+Data is split across **two SQLite files**: the high-volume `logs` table lives in `logs.db` (`MITE_LOGS_DB_PATH`) while patterns, alerts, hosts, settings, etc. live in `mite.db` (`MITE_DB_PATH`). Never hardcode a path — call `get_database_for_table(table_name)` (in `src/core/db.py`), which consults the table→db map and falls back to the main DB.
+
 ### Configuration
-All config is via environment variables with defaults in `src/core/config.py`. Variables are read at module import time as module-level constants (e.g., `MITE_DB_PATH`, `AI_DISCOVERY_ENABLED`). All state is stored in SQLite — no filesystem-based configuration.
+Bootstrap config (bind hosts/ports, DB paths, AI credentials) is via environment variables with defaults in `src/core/config.py`, read at import time as module-level constants (e.g., `MITE_DB_PATH`, `AI_API_BASE_URL`). Runtime-tunable settings are stored **in the database** and read via `get_setting(key, default)` / `settings_loader.py`, exposed through `routes_settings`. Container storage paths (`/app/data/*.db`, `/app/logs`) are fixed, not configurable.
 
 ### Logging
 Use the wrappers in `src/utils/locallogging.py` (`log_info`, `log_error`, `log_warn`) rather than calling `logger.info()` directly. Each module creates its own `logger = logging.getLogger(__name__)`.
@@ -85,6 +90,16 @@ docker compose up -d
 # Run a single component locally (requires env vars or defaults to /app/* paths)
 python -m src.api.server
 python -m src.workers.processor
+```
+
+## Linting & Tests
+
+There is no automated test suite or lint config file; `tests/` contains manual syslog-sender scripts (`send_sample_logs.py`, `send_fixed_logs.py`) for exercising the listeners against a running instance. Style tooling is run ad hoc:
+
+```bash
+python -m flake8 src/
+python -m black --check src/    # drop --check to reformat
+python -m isort --check-only src/
 ```
 
 ## Dependencies
