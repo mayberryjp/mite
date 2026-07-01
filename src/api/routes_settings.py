@@ -1,8 +1,10 @@
 import json
 import logging
+import os
 
 from bottle import request, response
 
+from src.core.config import MITE_DB_PATH, MITE_LOGS_DB_PATH
 from src.core.db import (
     delete_setting,
     get_discarded_too_small_count,
@@ -212,6 +214,16 @@ READ_ONLY_SETTINGS = {
         "default": 0,
         "type": "int",
     },
+    "mite_db_size_bytes": {
+        "description": "Current size on disk of the main database file (mite.db: patterns, alerts, stats, settings) in bytes.",
+        "default": 0,
+        "type": "int",
+    },
+    "logs_db_size_bytes": {
+        "description": "Current size on disk of the logs database file (logs.db) in bytes.",
+        "default": 0,
+        "type": "int",
+    },
 }
 
 
@@ -223,6 +235,13 @@ def _get_ai_efficiency_score():
         return 0.0
 
 
+def _get_file_size(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
 def _get_read_only_setting_value(key):
     if key == "ai_efficiency_score":
         return _get_ai_efficiency_score()
@@ -232,6 +251,12 @@ def _get_read_only_setting_value(key):
 
     if key == "discarded_too_small_count":
         return get_discarded_too_small_count()
+
+    if key == "mite_db_size_bytes":
+        return _get_file_size(MITE_DB_PATH)
+
+    if key == "logs_db_size_bytes":
+        return _get_file_size(MITE_LOGS_DB_PATH)
 
     raise ValueError(f"Unknown read-only setting: {key}")
 
