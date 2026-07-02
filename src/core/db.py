@@ -1394,10 +1394,32 @@ def get_stats():
     try:
         cursor = conn.cursor()
 
-        # Logs live in their own database file.
         logs_last_hour = 0
         logs_last_24h = 0
         total_logs = 0
+
+        # total_logs reflects only logs whose pattern's effective classification
+        # meets the configured DB store minimum. Patterns below the minimum
+        # (e.g. noise) are retained but excluded from the reported total.
+        classification_levels = ["noise", "low", "medium", "high", "critical"]
+        min_class = get_setting("db_store_min_classification", "low") or "low"
+        min_class = str(min_class).strip().lower()
+        min_level = (
+            classification_levels.index(min_class)
+            if min_class in classification_levels
+            else 0
+        )
+        below_min_classes = set(classification_levels[:min_level])
+        below_min_pattern_ids = []
+        if below_min_classes:
+            cursor.execute(
+                "SELECT id, COALESCE(user_override, classification, 'pending') FROM patterns"
+            )
+            below_min_pattern_ids = [
+                row[0] for row in cursor.fetchall() if row[1] in below_min_classes
+            ]
+
+        # Logs live in their own database file.
         logs_conn = connect_to_db(get_db_for_table("logs"))
         if logs_conn:
             try:
@@ -1412,7 +1434,14 @@ def get_stats():
                 )
                 logs_last_24h = logs_cursor.fetchone()[0]
 
-                logs_cursor.execute("SELECT COUNT(*) FROM logs")
+                if below_min_pattern_ids:
+                    placeholders = ",".join("?" for _ in below_min_pattern_ids)
+                    logs_cursor.execute(
+                        f"SELECT COUNT(*) FROM logs WHERE pattern_id IS NULL OR pattern_id NOT IN ({placeholders})",
+                        below_min_pattern_ids,
+                    )
+                else:
+                    logs_cursor.execute("SELECT COUNT(*) FROM logs")
                 total_logs = logs_cursor.fetchone()[0]
             finally:
                 disconnect_from_db(logs_conn)

@@ -9,7 +9,6 @@ from bottle import request, response
 from src.core.config import MITE_DB_PATH, VERSION
 from src.core.db import (
     delete_all_patterns,
-    delete_logs_by_pattern_id,
     delete_old_patterns,
     delete_pattern,
     get_all_pattern_stats,
@@ -19,7 +18,6 @@ from src.core.db import (
     get_logs_by_pattern,
     get_pattern_by_id,
     get_pattern_stats,
-    get_setting,
     move_low_patterns_to_noise,
     reset_all_pattern_hit_counts,
     update_pattern_ai_explanation,
@@ -31,14 +29,6 @@ from src.core.db import (
 from src.utils.locallogging import log_error, log_info
 
 VALID_CLASSIFICATIONS = {"critical", "high", "medium", "low", "noise"}
-
-
-def _save_noise_logs_enabled():
-    """Noise logs are retained only when the DB store level includes noise."""
-    value = get_setting("db_store_min_classification")
-    if value is None:
-        value = "low"
-    return str(value).strip().lower() == "noise"
 
 
 def export_patterns_to_file(data_dir=None):
@@ -231,20 +221,6 @@ def setup_patterns_routes(app):
 
             if "classification" in data:
                 update_pattern_user_override(pattern_id, user_override)
-
-                # If marked as noise, delete associated logs unless retention is enabled
-                if user_override == "noise":
-                    if _save_noise_logs_enabled():
-                        log_info(
-                            logger,
-                            f"[INFO] Pattern {pattern_id} marked as noise; retaining logs (db_store_min_classification=noise)",
-                        )
-                    else:
-                        deleted = delete_logs_by_pattern_id(pattern_id)
-                        log_info(
-                            logger,
-                            f"[INFO] Deleted {deleted} logs for pattern {pattern_id} marked as noise",
-                        )
 
             if filter_at_listener is not None:
                 update_pattern_filter_at_listener(pattern_id, filter_at_listener)
