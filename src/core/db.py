@@ -163,6 +163,16 @@ def _seed_patterns_from_import_file(cursor):
         f"[INFO] Seeded {inserted} patterns from {import_path} "
         f"({skipped} skipped of {len(patterns)} in file)",
     )
+
+    # Rename the import file so it is not processed again on a later fresh
+    # install (e.g. if the database is wiped but the file is left in place).
+    imported_path = os.path.splitext(import_path)[0] + ".imported"
+    try:
+        os.replace(import_path, imported_path)
+        log_info(logger, f"[INFO] Renamed import file to {imported_path}")
+    except OSError as e:
+        log_error(logger, f"[ERROR] Failed to rename {import_path}: {e}")
+
     return inserted
 
 
