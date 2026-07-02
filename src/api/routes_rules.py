@@ -123,9 +123,7 @@ def setup_patterns_routes(app):
             message = body.get("log") or body.get("message") or body.get("raw_message")
             if not isinstance(message, str) or not message.strip():
                 response.status = 400
-                return json.dumps(
-                    {"error": "log must be a non-empty string"}
-                )
+                return json.dumps({"error": "log must be a non-empty string"})
 
             # Mirror the processor: tokenize, then run against the regex list.
             tokenized_message = preprocess_sample_for_ai(message)
