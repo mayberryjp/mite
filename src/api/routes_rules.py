@@ -105,6 +105,61 @@ def setup_patterns_routes(app):
             response.status = 500
             return {"error": str(e)}
 
+    @app.route("/api/patterns/match", method=["POST"])
+    def api_match_pattern():
+        """Run a raw log message through the processor regex list.
+
+        Accepts JSON {"log": "..."} (aliases: "message", "raw_message"), applies
+        the same tokenization the processor uses, matches it against the stored
+        pattern regexes, and reports which pattern id/name it matched.
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            from src.core.ai_discovery import preprocess_sample_for_ai
+            from src.core.pattern_extractor import extract_pattern, hash_pattern
+            from src.workers.processor import match_by_regex
+
+            body = request.json or {}
+            message = body.get("log") or body.get("message") or body.get("raw_message")
+            if not isinstance(message, str) or not message.strip():
+                response.status = 400
+                return json.dumps(
+                    {"error": "log must be a non-empty string"}
+                )
+
+            # Mirror the processor: tokenize, then run against the regex list.
+            tokenized_message = preprocess_sample_for_ai(message)
+            normalized_pattern = extract_pattern(tokenized_message)
+
+            pattern_id, effective_classification = match_by_regex(tokenized_message)
+
+            result = {
+                "matched": pattern_id is not None,
+                "pattern_id": pattern_id,
+                "name": None,
+                "effective_classification": effective_classification,
+                "tokenized_message": tokenized_message,
+                "normalized_pattern": normalized_pattern,
+                "pattern_hash": hash_pattern(normalized_pattern),
+            }
+
+            if pattern_id is not None:
+                pattern = get_pattern_by_id(pattern_id)
+                if pattern:
+                    result["name"] = pattern.get("title") or f"pattern_{pattern_id}"
+
+            response.content_type = "application/json"
+            log_info(
+                logger,
+                f"[INFO] Pattern match test -> matched={result['matched']} "
+                f"pattern_id={pattern_id}",
+            )
+            return json.dumps(result)
+        except Exception as e:
+            log_error(logger, f"[ERROR] Failed to match log against patterns: {e}")
+            response.status = 500
+            return json.dumps({"error": str(e)})
+
     @app.route("/api/patterns/<pattern_id:int>", method=["GET"])
     def api_get_pattern(pattern_id):
         logger = logging.getLogger(__name__)
