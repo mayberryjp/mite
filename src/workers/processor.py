@@ -31,6 +31,7 @@ from src.core.db import (
 )
 from src.core.discord import send_alert_discord, send_discord_message
 from src.core.pattern_extractor import extract_pattern, hash_pattern
+from src.core.settings_loader import get_int_setting
 from src.core.syslog_forwarder import CLASSIFICATION_LEVELS, forward_log_to_syslog
 from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
 
@@ -105,27 +106,13 @@ def _load_runtime_settings():
     """Load processor runtime tuning settings from DB with safe fallbacks."""
     global PROCESS_INTERVAL, PROCESS_FETCH_LIMIT, REGEX_CACHE_TTL
 
-    def _read_runtime_int(key, default_value):
-        raw_value = get_setting(key, str(default_value))
-        try:
-            parsed = int(raw_value)
-            if parsed < 1:
-                raise ValueError(f"{key} must be >= 1")
-            return parsed
-        except (TypeError, ValueError):
-            log_error(
-                logger,
-                f"[ERROR] Invalid setting '{key}' value '{raw_value}', using default {default_value}",
-            )
-            return default_value
-
-    PROCESS_INTERVAL = _read_runtime_int(
+    PROCESS_INTERVAL = get_int_setting(
         "processor_interval_seconds", PROCESS_INTERVAL_DEFAULT
     )
-    PROCESS_FETCH_LIMIT = _read_runtime_int(
+    PROCESS_FETCH_LIMIT = get_int_setting(
         "processor_fetch_limit", PROCESS_FETCH_LIMIT_DEFAULT
     )
-    REGEX_CACHE_TTL = _read_runtime_int(
+    REGEX_CACHE_TTL = get_int_setting(
         "regex_cache_ttl_seconds", REGEX_CACHE_TTL_DEFAULT
     )
     _load_syslog_forwarding_settings()
@@ -165,7 +152,7 @@ def match_by_regex(message):
         try:
             if entry["regex"].search(message):
                 return entry["id"], entry["effective_classification"]
-        except Exception:
+        except re.error:
             continue
     return None, None
 

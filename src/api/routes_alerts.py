@@ -3,87 +3,66 @@ import logging
 
 from bottle import request, response
 
+from src.api._common import json_endpoint
 from src.core.db import (
     delete_alert,
     delete_all_alerts,
     get_alerts,
     get_hourly_alert_counts,
 )
-from src.utils.locallogging import log_error, log_info
+from src.utils.locallogging import log_info
+
+logger = logging.getLogger(__name__)
 
 
 def setup_alerts_routes(app):
 
     @app.route("/api/alerts", method=["GET"])
+    @json_endpoint
     def api_get_alerts():
-        logger = logging.getLogger(__name__)
-        try:
-            limit = int(request.params.get("limit", 100))
-            offset = int(request.params.get("offset", 0))
-            severity = request.params.get("severity")
-            host = request.params.get("host")
-            source_ip = request.params.get("source_ip")
-            pattern_id = request.params.get("pattern_id")
-            search = request.params.get("search")
+        limit = int(request.params.get("limit", 100))
+        offset = int(request.params.get("offset", 0))
+        severity = request.params.get("severity")
+        host = request.params.get("host")
+        source_ip = request.params.get("source_ip")
+        pattern_id = request.params.get("pattern_id")
+        search = request.params.get("search")
 
-            items, total = get_alerts(
-                limit=limit,
-                offset=offset,
-                severity=severity,
-                host=host,
-                source_ip=source_ip,
-                pattern_id=pattern_id,
-                search=search,
-            )
+        items, total = get_alerts(
+            limit=limit,
+            offset=offset,
+            severity=severity,
+            host=host,
+            source_ip=source_ip,
+            pattern_id=pattern_id,
+            search=search,
+        )
 
-            response.content_type = "application/json"
-            log_info(logger, f"[INFO] Retrieved {len(items)} alerts (total {total})")
-            return json.dumps(
-                {"items": items, "limit": limit, "offset": offset, "total": total}
-            )
-        except Exception as e:
-            log_error(logger, f"[ERROR] Failed to get alerts: {e}")
-            response.status = 500
-            return {"error": str(e)}
+        log_info(logger, f"[INFO] Retrieved {len(items)} alerts (total {total})")
+        return json.dumps(
+            {"items": items, "limit": limit, "offset": offset, "total": total}
+        )
 
     @app.route("/api/alerts", method=["DELETE"])
+    @json_endpoint
     def api_delete_all_alerts():
-        logger = logging.getLogger(__name__)
-        try:
-            deleted = delete_all_alerts()
-            log_info(logger, f"[INFO] Deleted all alerts ({deleted} total)")
-            response.content_type = "application/json"
-            return json.dumps({"status": "ok", "deleted": deleted})
-        except Exception as e:
-            log_error(logger, f"[ERROR] Failed to delete alerts: {e}")
-            response.status = 500
-            return {"error": str(e)}
+        deleted = delete_all_alerts()
+        log_info(logger, f"[INFO] Deleted all alerts ({deleted} total)")
+        return json.dumps({"status": "ok", "deleted": deleted})
 
     @app.route("/api/alerts/<alert_id:int>", method=["DELETE"])
+    @json_endpoint
     def api_delete_alert(alert_id):
-        logger = logging.getLogger(__name__)
-        try:
-            deleted = delete_alert(alert_id)
-            if not deleted:
-                response.status = 404
-                return {"error": "Alert not found"}
-            log_info(logger, f"[INFO] Deleted alert {alert_id}")
-            response.content_type = "application/json"
-            return json.dumps({"status": "ok", "alert_id": alert_id})
-        except Exception as e:
-            log_error(logger, f"[ERROR] Failed to delete alert {alert_id}: {e}")
-            response.status = 500
-            return {"error": str(e)}
+        deleted = delete_alert(alert_id)
+        if not deleted:
+            response.status = 404
+            return {"error": "Alert not found"}
+        log_info(logger, f"[INFO] Deleted alert {alert_id}")
+        return json.dumps({"status": "ok", "alert_id": alert_id})
 
     @app.route("/api/alerts/hourly", method=["GET"])
+    @json_endpoint
     def api_get_hourly_alert_counts():
-        logger = logging.getLogger(__name__)
-        try:
-            hours = int(request.params.get("hours", 24))
-            stats = get_hourly_alert_counts(hours=hours)
-            response.content_type = "application/json"
-            return json.dumps({"hours": hours, "stats": stats})
-        except Exception as e:
-            log_error(logger, f"[ERROR] Failed to get hourly alert counts: {e}")
-            response.status = 500
-            return {"error": str(e)}
+        hours = int(request.params.get("hours", 24))
+        stats = get_hourly_alert_counts(hours=hours)
+        return json.dumps({"hours": hours, "stats": stats})

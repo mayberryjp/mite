@@ -1,5 +1,4 @@
 import logging
-import re
 import socket
 import threading
 import time
@@ -8,8 +7,6 @@ from src.core.config import MITE_SYSLOG_TCP_HOST, MITE_SYSLOG_TCP_PORT
 from src.core.constants import (
     DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS,
     DEFAULT_TCP_BATCH_SIZE,
-    FILTER_CACHE_TTL_SECONDS,
-    MIN_MESSAGE_LENGTH,
     SYSLOG_BUFFER_SIZE,
     SYSLOG_TCP_LISTEN_BACKLOG,
 )
@@ -17,7 +14,6 @@ from src.core.db import (
     connect_to_db,
     disconnect_from_db,
     get_db_for_table,
-    get_filter_patterns,
     insert_logs_batch,
     record_discarded_too_small,
     record_silently_dropped,
@@ -25,77 +21,17 @@ from src.core.db import (
 from src.core.settings_loader import get_float_setting, get_int_setting
 from src.core.syslog_parser import parse_syslog_message
 from src.utils.locallogging import log_error, log_info
+from src.workers.listener_common import (
+    FILTER_CACHE_TTL,
+    is_meaningful_message,
+    refresh_filter_cache,
+    should_filter_message,
+)
 
 # Use constants for default values; these can be overridden by database settings
 BUFFER_SIZE = SYSLOG_BUFFER_SIZE
 TCP_BATCH_SIZE_DEFAULT = DEFAULT_TCP_BATCH_SIZE
 TCP_BATCH_FLUSH_INTERVAL_DEFAULT = DEFAULT_TCP_BATCH_FLUSH_INTERVAL_SECONDS
-
-
-# Cache of filter patterns (patterns with filter_at_listener = 1)
-_filter_cache = []
-_filter_cache_ttl = FILTER_CACHE_TTL_SECONDS
-
-# Minimum meaningful message length, refreshed alongside the filter cache.
-_min_message_length = MIN_MESSAGE_LENGTH
-
-
-def _refresh_filter_cache():
-    """Load and compile patterns marked for filtering at listener."""
-    global _filter_cache, _min_message_length
-    try:
-        _min_message_length = get_int_setting(
-            "min_message_length", MIN_MESSAGE_LENGTH, min_value=0
-        )
-    except Exception:
-        _min_message_length = MIN_MESSAGE_LENGTH
-    try:
-        patterns = get_filter_patterns()
-        compiled = []
-        for p in patterns:
-            try:
-                compiled.append(
-                    {
-                        "id": p["id"],
-                        "regex": re.compile(p["match_regex"]),
-                    }
-                )
-            except re.error as e:
-                logging.getLogger(__name__).warning(
-                    f"[WARN] Invalid regex for filter pattern {p['id']}: {e}"
-                )
-        _filter_cache = compiled
-    except Exception as e:
-        logging.getLogger(__name__).error(
-            f"[ERROR] Failed to load filter patterns: {e}"
-        )
-
-
-def _should_filter_message(message):
-    """Check if message matches any filter pattern. Returns True if should be filtered."""
-    if not _filter_cache:
-        return False
-    for entry in _filter_cache:
-        try:
-            if entry["regex"].search(message):
-                return True
-        except Exception:
-            pass
-    return False
-
-
-def _is_meaningful_message(message):
-    """Return False for low-signal messages that are too small to be worth keeping.
-
-    Drops messages shorter than the configured minimum length or with fewer than
-    three real alphabetic words.
-    """
-    text = (message or "").strip()
-    if len(text) < _min_message_length:
-        return False
-    stripped = re.sub(r"[^A-Za-z\s]", " ", text).strip()
-    words = [w for w in stripped.split() if len(w) > 1 and any(c.isalpha() for c in w)]
-    return len(words) >= 3
 
 
 def _flush_batch(logger, log_batch, conn):
@@ -105,7 +41,7 @@ def _flush_batch(logger, log_batch, conn):
         log_error(logger, f"[ERROR] TCP batch flush error: {e}")
 
 
-def handle_tcp_client(conn_sock, addr):
+def handle_tcp_client(conn_sock, addr, batch_size, batch_flush_interval):
     logger = logging.getLogger(__name__)
     source_ip = addr[0]
     buffer = ""
@@ -125,10 +61,10 @@ def handle_tcp_client(conn_sock, addr):
     db_conn = connect_to_db(get_db_for_table("logs"))
 
     # Load filter patterns
-    _refresh_filter_cache()
+    refresh_filter_cache()
 
     try:
-        conn_sock.settimeout(BATCH_FLUSH_INTERVAL)
+        conn_sock.settimeout(batch_flush_interval)
         while True:
             try:
                 data = conn_sock.recv(BUFFER_SIZE)
@@ -146,8 +82,8 @@ def handle_tcp_client(conn_sock, addr):
                     too_small_count = 0
                     too_small_ts = None
                 # Refresh filter cache periodically
-                if time.monotonic() - last_filter_refresh > _filter_cache_ttl:
-                    _refresh_filter_cache()
+                if time.monotonic() - last_filter_refresh > FILTER_CACHE_TTL:
+                    refresh_filter_cache()
                     last_filter_refresh = time.monotonic()
                 continue
 
@@ -164,13 +100,13 @@ def handle_tcp_client(conn_sock, addr):
                 parsed = parse_syslog_message(line, source_ip=source_ip)
 
                 # Check if message matches any filter pattern
-                if _should_filter_message(parsed["message"]):
+                if should_filter_message(parsed["message"]):
                     dropped_count += 1
                     dropped_ts = parsed["received_at"]
                     continue
 
                 # Drop messages that are too small / low-signal
-                if not _is_meaningful_message(parsed["message"]):
+                if not is_meaningful_message(parsed["message"]):
                     too_small_count += 1
                     too_small_ts = parsed["received_at"]
                     continue
@@ -189,8 +125,8 @@ def handle_tcp_client(conn_sock, addr):
                     )
                 )
                 if (
-                    len(log_batch) >= BATCH_SIZE
-                    or (time.monotonic() - last_flush) >= BATCH_FLUSH_INTERVAL
+                    len(log_batch) >= batch_size
+                    or (time.monotonic() - last_flush) >= batch_flush_interval
                 ):
                     _flush_batch(logger, log_batch, db_conn)
                     log_batch = []
@@ -219,10 +155,9 @@ def handle_tcp_client(conn_sock, addr):
 
 
 def run_tcp_listener():
-    global BATCH_SIZE, BATCH_FLUSH_INTERVAL
     logger = logging.getLogger(__name__)
-    BATCH_SIZE = get_int_setting("tcp_batch_size", TCP_BATCH_SIZE_DEFAULT)
-    BATCH_FLUSH_INTERVAL = get_float_setting(
+    batch_size = get_int_setting("tcp_batch_size", TCP_BATCH_SIZE_DEFAULT)
+    batch_flush_interval = get_float_setting(
         "tcp_batch_flush_interval_seconds", TCP_BATCH_FLUSH_INTERVAL_DEFAULT
     )
 
@@ -240,7 +175,9 @@ def run_tcp_listener():
         try:
             conn, addr = sock.accept()
             thread = threading.Thread(
-                target=handle_tcp_client, args=(conn, addr), daemon=True
+                target=handle_tcp_client,
+                args=(conn, addr, batch_size, batch_flush_interval),
+                daemon=True,
             )
             thread.start()
         except Exception as e:

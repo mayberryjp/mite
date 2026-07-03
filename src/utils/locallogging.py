@@ -1,23 +1,32 @@
 import os
 import sqlite3
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime
 
+from src.core.config import MITE_DB_PATH, MITE_LOGS_DIR
+
 SETTINGS_CACHE_TTL_SECONDS = 60
 _settings_cache = {}
+_settings_cache_lock = threading.Lock()
+
+# Re-entrancy guard so error logging never recurses into DB writes:
+# log_error -> create_action -> execute_with_retry -> log_error -> ...
+_log_error_guard = threading.local()
 
 
 def _settings_db_path():
-    return "/app/data/mite.db"
+    return MITE_DB_PATH
 
 
 def _read_bool_setting(key, default=False):
     now = time.time()
-    cached = _settings_cache.get(key)
-    if cached and now - cached["ts"] < SETTINGS_CACHE_TTL_SECONDS:
-        return cached["value"]
+    with _settings_cache_lock:
+        cached = _settings_cache.get(key)
+        if cached and now - cached["ts"] < SETTINGS_CACHE_TTL_SECONDS:
+            return cached["value"]
 
     value = default
     try:
@@ -30,16 +39,16 @@ def _read_bool_setting(key, default=False):
                 value = str(row[0]).strip().lower() in ("true", "1", "yes", "on")
         finally:
             conn.close()
-    except Exception:
+    except sqlite3.Error:
         value = default
 
-    _settings_cache[key] = {"value": value, "ts": now}
+    with _settings_cache_lock:
+        _settings_cache[key] = {"value": value, "ts": now}
     return value
 
 
 def _write_daily_log_line(subfolder, message):
-    logs_root = "/app/logs"
-    log_dir = os.path.join(logs_root, subfolder)
+    log_dir = os.path.join(MITE_LOGS_DIR, subfolder)
     os.makedirs(log_dir, exist_ok=True)
     log_filename = datetime.now().strftime("%Y-%m-%d.log")
     log_path = os.path.join(log_dir, log_filename)
@@ -100,6 +109,12 @@ def log_error(logger, message):
     print(formatted_message)
     logger.error(formatted_message)
     write_application_daily_log(logger, formatted_message)
+
+    # Guard against re-entrancy: create_action issues DB writes with retries that
+    # call log_error on contention, which would otherwise recurse indefinitely.
+    if getattr(_log_error_guard, "active", False):
+        return
+    _log_error_guard.active = True
     try:
         from src.core.db import create_action
 
@@ -108,6 +123,8 @@ def log_error(logger, message):
         warn = f"[WARN] Failed to record error action: {e}"
         print(warn)
         logger.warning(warn)
+    finally:
+        _log_error_guard.active = False
 
 
 def log_warn(logger, message):

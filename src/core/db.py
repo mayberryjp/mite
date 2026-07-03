@@ -3,6 +3,7 @@ import logging
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 
 from src.core.config import MITE_DB_PATH, MITE_LOGS_DB_PATH
 from src.core.models import (
@@ -14,9 +15,8 @@ from src.core.models import (
     CONST_CREATE_PATTERN_STATS_SQL,
     CONST_CREATE_PATTERNS_SQL,
     CONST_CREATE_SETTINGS_SQL,
-    DEFAULT_AI_CUSTOM_TOKENS,
-    DEFAULT_AI_PROMPT_TEMPLATE,
 )
+from src.core.settings_schema import default_settings_seed
 from src.utils.locallogging import log_error, log_info
 
 MAX_RETRIES = 5
@@ -70,6 +70,64 @@ def disconnect_from_db(conn):
             conn.close()
     except sqlite3.Error as e:
         log_error(logger, f"[ERROR] Error closing database connection: {e}")
+
+
+@contextmanager
+def db_connection(db_path=MITE_DB_PATH):
+    """Yield a database connection and guarantee it is closed.
+
+    Yields None when the connection cannot be opened, preserving the historical
+    contract where callers return a default value on a connect failure.
+    """
+    conn = connect_to_db(db_path)
+    try:
+        yield conn
+    finally:
+        disconnect_from_db(conn)
+
+
+def _row_to_log(r):
+    """Map a logs row selected as (…, message, pattern_id) to a dict."""
+    return {
+        "id": r[0],
+        "received_at": r[1],
+        "source_ip": r[2],
+        "host": r[3],
+        "facility": r[4],
+        "severity": r[5],
+        "program": r[6],
+        "pid": r[7],
+        "message": r[8],
+        "pattern_id": r[9],
+    }
+
+
+def _row_to_pattern(r, include_effective=False):
+    """Map a patterns row (15 columns) to a dict.
+
+    When include_effective is True, add effective_classification (the user
+    override when set, otherwise the AI classification).
+    """
+    pattern = {
+        "id": r[0],
+        "pattern_hash": r[1],
+        "pattern_text": r[2],
+        "sample_message": r[3],
+        "classification": r[4],
+        "ai_explanation": r[5],
+        "user_override": r[6],
+        "match_regex": r[7],
+        "title": r[8],
+        "host": r[9],
+        "program": r[10],
+        "hit_count": r[11],
+        "first_seen_at": r[12],
+        "last_seen_at": r[13],
+        "filter_at_listener": bool(r[14]),
+    }
+    if include_effective:
+        pattern["effective_classification"] = r[6] if r[6] else r[4]
+    return pattern
 
 
 def _seed_patterns_from_import_file(cursor):
@@ -216,7 +274,6 @@ def init_database():
         conn = sqlite3.connect(MITE_DB_PATH)
         conn.execute("PRAGMA busy_timeout = 10000")
         cursor = conn.cursor()
-        cursor.execute("DROP TABLE IF EXISTS hosts")
         for sql in [
             CONST_CREATE_PATTERNS_SQL,
             CONST_CREATE_ALERTS_SQL,
@@ -232,125 +289,8 @@ def init_database():
         # from a patterns_import.json file in the data folder.
         if not db_existed:
             _seed_patterns_from_import_file(cursor)
-        # Seed defaults only when rows do not already exist.
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_prompt_template", DEFAULT_AI_PROMPT_TEMPLATE),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_custom_tokens", DEFAULT_AI_CUSTOM_TOKENS),
-        )
-        # Seed default minimum message length if not already set
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("min_message_length", "35"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("discarded_too_small_count", "0"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("silently_dropped_count", "0"),
-        )
-        # Seed Discord notification settings if not already set
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("discord_notifications_enabled", "false"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("discord_webhook_url", ""),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("action_on_new_patterns", "true"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("notify_on_new_patterns", "false"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("action_on_no_logs", "true"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("notify_on_no_logs", "false"),
-        )
-        # Seed retention settings if not already set
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("log_retention_days", "14"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("alert_retention_days", "30"),
-        )
-        # Seed AI API daily rate limit if not already set
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_api_daily_rate_limit", "500"),
-        )
-        # Seed worker/runtime tuning settings if not already set
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_discovery_interval_seconds", "3600"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_batch_size", "20"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_regex_review_interval_seconds", "604800"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_regex_review_last_run_epoch", "0"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("ai_efficiency_score", "0.0"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("processor_interval_seconds", "10"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("processor_fetch_limit", "100"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("retention_check_interval_seconds", "3600"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("udp_batch_size", "500"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("udp_batch_flush_interval_seconds", "1.0"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("udp_recv_buffer_bytes", "4194304"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("tcp_batch_size", "500"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("tcp_batch_flush_interval_seconds", "1.0"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("regex_cache_ttl_seconds", "60"),
-        )
-        # Migrate legacy misspelled key to the corrected setting key once.
+        # Migrate the legacy misspelled key to the corrected key once, before
+        # seeding, so an existing user value is preserved rather than re-seeded.
         cursor.execute(
             """UPDATE settings
                SET key = ?
@@ -362,39 +302,11 @@ def init_database():
                 "write_application_log",
             ),
         )
-        # Seed file logging settings if not already set
-        cursor.execute(
+        # Seed default rows only when they do not already exist. Defaults live in
+        # settings_schema (single source of truth, shared with the settings API).
+        cursor.executemany(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("write_application_log", "false"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("write_syslog_log", "false"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("log_ai_requests", "false"),
-        )
-        # Seed syslog forwarding settings if not already set
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("syslog_forward_enabled", "false"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("syslog_forward_destination", ""),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("syslog_forward_min_classification", "low"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("write_syslog_min_classification", "low"),
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("db_store_min_classification", "low"),
+            default_settings_seed(),
         )
         conn.commit()
         log_info(logger, f"[INFO] Database initialized successfully at {MITE_DB_PATH}")
@@ -429,10 +341,9 @@ def insert_log(
     received_at, source_ip, host, facility, severity, program, pid, message, raw_message
 ):
     def _insert():
-        conn = connect_to_db(get_db_for_table("logs"))
-        if not conn:
-            return None
-        try:
+        with db_connection(get_db_for_table("logs")) as conn:
+            if not conn:
+                return None
             cursor = conn.cursor()
             cursor.execute(
                 """INSERT INTO logs (received_at, source_ip, host, facility, severity, program, pid, message, raw_message)
@@ -451,8 +362,6 @@ def insert_log(
             )
             conn.commit()
             return cursor.lastrowid
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_insert)
 
@@ -487,10 +396,9 @@ def insert_logs_batch(logs, conn=None):
 
 
 def get_unprocessed_logs(limit=500):
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return []
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, raw_message FROM logs WHERE processed = 0 ORDER BY id ASC LIMIT ?",
@@ -512,8 +420,6 @@ def get_unprocessed_logs(limit=500):
             }
             for r in rows
         ]
-    finally:
-        disconnect_from_db(conn)
 
 
 def mark_logs_processed(log_ids, pattern_id=None):
@@ -521,10 +427,9 @@ def mark_logs_processed(log_ids, pattern_id=None):
         return
 
     def _mark():
-        conn = connect_to_db(get_db_for_table("logs"))
-        if not conn:
-            return
-        try:
+        with db_connection(get_db_for_table("logs")) as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             placeholders = ",".join("?" for _ in log_ids)
             if pattern_id is not None:
@@ -538,8 +443,6 @@ def mark_logs_processed(log_ids, pattern_id=None):
                     list(log_ids),
                 )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_mark)
 
@@ -555,10 +458,9 @@ def get_logs(
     start=None,
     end=None,
 ):
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return [], 0
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return [], 0
         cursor = conn.cursor()
         conditions = ["processed = 1"]
         params = []
@@ -596,62 +498,26 @@ def get_logs(
             f"SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs {where} ORDER BY id DESC LIMIT ? OFFSET ?",
             params + [limit, offset],
         )
-        rows = cursor.fetchall()
-        items = [
-            {
-                "id": r[0],
-                "received_at": r[1],
-                "source_ip": r[2],
-                "host": r[3],
-                "facility": r[4],
-                "severity": r[5],
-                "program": r[6],
-                "pid": r[7],
-                "message": r[8],
-                "pattern_id": r[9],
-            }
-            for r in rows
-        ]
+        items = [_row_to_log(r) for r in cursor.fetchall()]
         return items, total
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_recent_logs(after_id=0, limit=50):
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return []
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs WHERE processed = 1 AND id > ? ORDER BY id DESC LIMIT ?",
             (after_id, limit),
         )
-        rows = cursor.fetchall()
-        return [
-            {
-                "id": r[0],
-                "received_at": r[1],
-                "source_ip": r[2],
-                "host": r[3],
-                "facility": r[4],
-                "severity": r[5],
-                "program": r[6],
-                "pid": r[7],
-                "message": r[8],
-                "pattern_id": r[9],
-            }
-            for r in rows
-        ]
-    finally:
-        disconnect_from_db(conn)
+        return [_row_to_log(r) for r in cursor.fetchall()]
 
 
 def get_logs_by_pattern(pattern_id, limit=100, offset=0):
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return [], 0
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return [], 0
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM logs WHERE pattern_id = ?", (pattern_id,))
         total = cursor.fetchone()[0]
@@ -660,35 +526,17 @@ def get_logs_by_pattern(pattern_id, limit=100, offset=0):
             "SELECT id, received_at, source_ip, host, facility, severity, program, pid, message, pattern_id FROM logs WHERE pattern_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
             (pattern_id, limit, offset),
         )
-        rows = cursor.fetchall()
-        items = [
-            {
-                "id": r[0],
-                "received_at": r[1],
-                "source_ip": r[2],
-                "host": r[3],
-                "facility": r[4],
-                "severity": r[5],
-                "program": r[6],
-                "pid": r[7],
-                "message": r[8],
-                "pattern_id": r[9],
-            }
-            for r in rows
-        ]
+        items = [_row_to_log(r) for r in cursor.fetchall()]
         return items, total
-    finally:
-        disconnect_from_db(conn)
 
 
 # --- Pattern operations ---
 
 
 def get_pattern_by_hash(pattern_hash):
-    conn = connect_to_db()
-    if not conn:
-        return None
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return None
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, pattern_hash, pattern_text, sample_message, classification, ai_explanation, user_override, match_regex, title, host, program, hit_count, first_seen_at, last_seen_at, filter_at_listener FROM patterns WHERE pattern_hash = ?",
@@ -697,35 +545,16 @@ def get_pattern_by_hash(pattern_hash):
         row = cursor.fetchone()
         if not row:
             return None
-        return {
-            "id": row[0],
-            "pattern_hash": row[1],
-            "pattern_text": row[2],
-            "sample_message": row[3],
-            "classification": row[4],
-            "ai_explanation": row[5],
-            "user_override": row[6],
-            "match_regex": row[7],
-            "title": row[8],
-            "host": row[9],
-            "program": row[10],
-            "hit_count": row[11],
-            "first_seen_at": row[12],
-            "last_seen_at": row[13],
-            "filter_at_listener": bool(row[14]),
-        }
-    finally:
-        disconnect_from_db(conn)
+        return _row_to_pattern(row)
 
 
 def insert_pattern(
     pattern_hash, pattern_text, sample_message, host=None, program=None, timestamp=None
 ):
     def _insert():
-        conn = connect_to_db()
-        if not conn:
-            return None
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return None
             cursor = conn.cursor()
             ts = timestamp or ""
             cursor.execute(
@@ -736,26 +565,21 @@ def insert_pattern(
             pattern_id = cursor.lastrowid
             conn.commit()
             return pattern_id
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_insert)
 
 
 def increment_pattern_hit(pattern_id, timestamp):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET hit_count = hit_count + 1, last_seen_at = ? WHERE id = ?",
                 (timestamp, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
@@ -767,10 +591,9 @@ def get_hit_count_sum_by_classification():
     AI classification. Returns a list of {classification, hit_count_sum,
     pattern_count} dicts ordered by hit_count_sum descending.
     """
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             """SELECT COALESCE(user_override, classification, 'pending') AS effective,
@@ -788,15 +611,12 @@ def get_hit_count_sum_by_classification():
             }
             for r in cursor.fetchall()
         ]
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_pending_patterns(limit=50):
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, pattern_hash, pattern_text, sample_message, host, program, hit_count, first_seen_at, last_seen_at FROM patterns WHERE classification = 'pending' ORDER BY hit_count DESC LIMIT ?",
@@ -817,62 +637,51 @@ def get_pending_patterns(limit=50):
             }
             for r in rows
         ]
-    finally:
-        disconnect_from_db(conn)
 
 
 def update_pattern_classification(
     pattern_id, classification, ai_explanation=None, match_regex=None, title=None
 ):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET classification = ?, ai_explanation = ?, match_regex = ?, title = ? WHERE id = ?",
                 (classification, ai_explanation, match_regex, title, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
 
 def update_pattern_user_override(pattern_id, user_override):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET user_override = ? WHERE id = ?",
                 (user_override, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
 
 def update_pattern_filter_at_listener(pattern_id, filter_at_listener):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET filter_at_listener = ? WHERE id = ?",
                 (1 if filter_at_listener else 0, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
@@ -881,10 +690,9 @@ def move_low_patterns_to_noise():
     """Set user_override to 'noise' for patterns whose effective classification is 'low'."""
 
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return 0
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return 0
             cursor = conn.cursor()
             cursor.execute("""UPDATE patterns
                    SET user_override = 'noise'
@@ -892,71 +700,59 @@ def move_low_patterns_to_noise():
                      AND (user_override IS NULL OR user_override != 'noise')""")
             conn.commit()
             return cursor.rowcount
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_update)
 
 
 def update_pattern_regex(pattern_id, match_regex):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET match_regex = ? WHERE id = ?",
                 (match_regex, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
 
 def update_pattern_title(pattern_id, title):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET title = ? WHERE id = ?",
                 (title, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
 
 def update_pattern_ai_explanation(pattern_id, ai_explanation):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE patterns SET ai_explanation = ? WHERE id = ?",
                 (ai_explanation, pattern_id),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_update)
 
 
 def get_all_patterns(limit=None, offset=0, classification=None):
-    conn = connect_to_db()
-    if not conn:
-        return [], 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return [], 0
         cursor = conn.cursor()
         conditions = []
         params = []
@@ -991,37 +787,14 @@ def get_all_patterns(limit=None, offset=0, classification=None):
                 params,
             )
         rows = cursor.fetchall()
-        items = [
-            {
-                "id": r[0],
-                "pattern_hash": r[1],
-                "pattern_text": r[2],
-                "sample_message": r[3],
-                "classification": r[4],
-                "ai_explanation": r[5],
-                "user_override": r[6],
-                "match_regex": r[7],
-                "title": r[8],
-                "host": r[9],
-                "program": r[10],
-                "hit_count": r[11],
-                "first_seen_at": r[12],
-                "last_seen_at": r[13],
-                "filter_at_listener": bool(r[14]),
-                "effective_classification": r[6] if r[6] else r[4],
-            }
-            for r in rows
-        ]
+        items = [_row_to_pattern(r, include_effective=True) for r in rows]
         return items, total
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_pattern_by_id(pattern_id):
-    conn = connect_to_db()
-    if not conn:
-        return None
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return None
         cursor = conn.cursor()
         cursor.execute(
             """SELECT id, pattern_hash, pattern_text, sample_message, classification,
@@ -1033,33 +806,13 @@ def get_pattern_by_id(pattern_id):
         row = cursor.fetchone()
         if not row:
             return None
-        return {
-            "id": row[0],
-            "pattern_hash": row[1],
-            "pattern_text": row[2],
-            "sample_message": row[3],
-            "classification": row[4],
-            "ai_explanation": row[5],
-            "user_override": row[6],
-            "match_regex": row[7],
-            "title": row[8],
-            "host": row[9],
-            "program": row[10],
-            "hit_count": row[11],
-            "first_seen_at": row[12],
-            "last_seen_at": row[13],
-            "filter_at_listener": bool(row[14]),
-            "effective_classification": row[6] if row[6] else row[4],
-        }
-    finally:
-        disconnect_from_db(conn)
+        return _row_to_pattern(row, include_effective=True)
 
 
 def get_patterns_with_regex():
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute("""SELECT id, match_regex, classification, user_override
                FROM patterns
@@ -1073,16 +826,13 @@ def get_patterns_with_regex():
             }
             for r in rows
         ]
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_filter_patterns():
     """Get only patterns marked for filtering at listener (filter_at_listener = 1)."""
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute("""SELECT id, match_regex
                FROM patterns
@@ -1095,8 +845,6 @@ def get_filter_patterns():
             }
             for r in rows
         ]
-    finally:
-        disconnect_from_db(conn)
 
 
 # --- Alert operations ---
@@ -1106,10 +854,9 @@ def insert_alert(
     created_at, log_id, pattern_id, severity, host, source_ip, message, reason, action
 ):
     def _insert():
-        conn = connect_to_db()
-        if not conn:
-            return None
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return None
             cursor = conn.cursor()
             cursor.execute(
                 """INSERT INTO alerts (created_at, log_id, pattern_id, severity, host, source_ip, message, reason, action)
@@ -1128,22 +875,17 @@ def insert_alert(
             )
             conn.commit()
             return cursor.lastrowid
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_insert)
 
 
 def update_alert_discord_sent(alert_id):
-    conn = connect_to_db()
-    if not conn:
-        return
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return
         cursor = conn.cursor()
         cursor.execute("UPDATE alerts SET discord_sent = 1 WHERE id = ?", (alert_id,))
         conn.commit()
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_alerts(
@@ -1155,10 +897,9 @@ def get_alerts(
     pattern_id=None,
     search=None,
 ):
-    conn = connect_to_db()
-    if not conn:
-        return [], 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return [], 0
         cursor = conn.cursor()
         conditions = []
         params = []
@@ -1214,8 +955,6 @@ def get_alerts(
             for r in rows
         ]
         return items, total
-    finally:
-        disconnect_from_db(conn)
 
 
 # --- Action operations ---
@@ -1223,10 +962,9 @@ def get_alerts(
 
 def create_action(action_text, acknowledged=False):
     def _insert():
-        conn = connect_to_db()
-        if not conn:
-            return None
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return None
             cursor = conn.cursor()
             cursor.execute(
                 """INSERT INTO actions (action_text, acknowledged)
@@ -1235,17 +973,14 @@ def create_action(action_text, acknowledged=False):
             )
             conn.commit()
             return cursor.lastrowid
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_insert)
 
 
 def get_action_by_id(action_id):
-    conn = connect_to_db()
-    if not conn:
-        return None
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return None
         cursor = conn.cursor()
         cursor.execute(
             """SELECT action_id, action_text, acknowledged, insert_date
@@ -1262,15 +997,12 @@ def get_action_by_id(action_id):
             "acknowledged": bool(row[2]),
             "insert_date": row[3],
         }
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_actions(limit=100, offset=0, acknowledged=None, search=None):
-    conn = connect_to_db()
-    if not conn:
-        return [], 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return [], 0
         cursor = conn.cursor()
         conditions = []
         params = []
@@ -1309,16 +1041,13 @@ def get_actions(limit=100, offset=0, acknowledged=None, search=None):
             for r in rows
         ]
         return items, total
-    finally:
-        disconnect_from_db(conn)
 
 
 def update_action(action_id, action_text=None, acknowledged=None):
     def _update():
-        conn = connect_to_db()
-        if not conn:
-            return False
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return False
             set_clauses = []
             params = []
 
@@ -1341,24 +1070,19 @@ def update_action(action_id, action_text=None, acknowledged=None):
             )
             conn.commit()
             return cursor.rowcount > 0
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_update)
 
 
 def delete_action(action_id):
     def _delete():
-        conn = connect_to_db()
-        if not conn:
-            return False
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return False
             cursor = conn.cursor()
             cursor.execute("DELETE FROM actions WHERE action_id = ?", (action_id,))
             conn.commit()
             return cursor.rowcount > 0
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_delete)
 
@@ -1367,16 +1091,13 @@ def acknowledge_all_actions():
     """Mark all unacknowledged actions as acknowledged. Returns affected row count."""
 
     def _ack_all():
-        conn = connect_to_db()
-        if not conn:
-            return 0
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return 0
             cursor = conn.cursor()
             cursor.execute("UPDATE actions SET acknowledged = 1 WHERE acknowledged = 0")
             conn.commit()
             return cursor.rowcount
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_ack_all)
 
@@ -1551,34 +1272,28 @@ def record_ai_api_call():
     """Record an AI API call timestamp."""
 
     def _record():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO ai_api_calls (called_at) VALUES (datetime('now', 'localtime'))"
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_record)
 
 
 def get_ai_api_call_count_24h():
     """Return the number of AI API calls in the last 24 hours."""
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "SELECT COUNT(*) FROM ai_api_calls WHERE called_at >= datetime('now', 'localtime', '-24 hours')"
         )
         return cursor.fetchone()[0]
-    finally:
-        disconnect_from_db(conn)
 
 
 # --- Settings operations ---
@@ -1586,26 +1301,22 @@ def get_ai_api_call_count_24h():
 
 def get_setting(key, default=None):
     """Return the value for a settings key, or default if not set."""
-    conn = connect_to_db()
-    if not conn:
-        return default
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return default
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = cursor.fetchone()
         return row[0] if row else default
-    finally:
-        disconnect_from_db(conn)
 
 
 def set_setting(key, value):
     """Insert or update a settings key/value pair."""
 
     def _upsert():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 """INSERT INTO settings (key, value, updated_at)
@@ -1615,8 +1326,6 @@ def set_setting(key, value):
                 (key, value),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_upsert)
 
@@ -1625,15 +1334,12 @@ def delete_setting(key):
     """Delete a settings key/value pair."""
 
     def _delete():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_delete)
 
@@ -1652,17 +1358,14 @@ def record_discarded_too_small(count, timestamp):
 
 def get_all_settings():
     """Return all settings as a list of {key, value, updated_at} dicts."""
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute("SELECT key, value, updated_at FROM settings ORDER BY key")
         return [
             {"key": r[0], "value": r[1], "updated_at": r[2]} for r in cursor.fetchall()
         ]
-    finally:
-        disconnect_from_db(conn)
 
 
 # --- Retention operations ---
@@ -1674,10 +1377,9 @@ def delete_logs(log_ids):
         return
 
     def _delete():
-        conn = connect_to_db(get_db_for_table("logs"))
-        if not conn:
-            return
-        try:
+        with db_connection(get_db_for_table("logs")) as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             placeholders = ",".join("?" for _ in log_ids)
             cursor.execute(
@@ -1685,8 +1387,6 @@ def delete_logs(log_ids):
                 list(log_ids),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_delete)
 
@@ -1695,17 +1395,14 @@ def delete_logs_by_pattern_id(pattern_id):
     """Delete all logs associated with a specific pattern. Returns count deleted."""
 
     def _delete():
-        conn = connect_to_db(get_db_for_table("logs"))
-        if not conn:
-            return 0
-        try:
+        with db_connection(get_db_for_table("logs")) as conn:
+            if not conn:
+                return 0
             cursor = conn.cursor()
             cursor.execute("DELETE FROM logs WHERE pattern_id = ?", (pattern_id,))
             deleted = cursor.rowcount
             conn.commit()
             return deleted
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_delete) or 0
 
@@ -1716,23 +1413,19 @@ def delete_logs_for_noise_patterns():
     def _delete():
         # Patterns live in the main DB; logs live in their own DB. Resolve the
         # noise pattern IDs first, then delete the matching logs separately.
-        main_conn = connect_to_db()
-        if not main_conn:
-            return 0
-        try:
+        with db_connection() as main_conn:
+            if not main_conn:
+                return 0
             cursor = main_conn.cursor()
             cursor.execute("SELECT id FROM patterns WHERE user_override = 'noise'")
             pattern_ids = [row[0] for row in cursor.fetchall()]
-        finally:
-            disconnect_from_db(main_conn)
 
         if not pattern_ids:
             return 0
 
-        conn = connect_to_db(get_db_for_table("logs"))
-        if not conn:
-            return 0
-        try:
+        with db_connection(get_db_for_table("logs")) as conn:
+            if not conn:
+                return 0
             cursor = conn.cursor()
             placeholders = ",".join("?" for _ in pattern_ids)
             cursor.execute(
@@ -1742,17 +1435,14 @@ def delete_logs_for_noise_patterns():
             deleted = cursor.rowcount
             conn.commit()
             return deleted
-        finally:
-            disconnect_from_db(conn)
 
     return execute_with_retry(_delete) or 0
 
 
 def delete_old_logs(days):
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return 0
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM logs WHERE datetime(received_at) < datetime('now', 'localtime', ?)",
@@ -1761,65 +1451,51 @@ def delete_old_logs(days):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_all_logs():
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return 0
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute("DELETE FROM logs")
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_all_alerts():
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute("DELETE FROM alerts")
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_alert(alert_id):
-    conn = connect_to_db()
-    if not conn:
-        return False
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return False
         cursor = conn.cursor()
         cursor.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
         deleted = cursor.rowcount > 0
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_pattern(pattern_id):
-    conn = connect_to_db()
-    if not conn:
-        return False
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return False
         cursor = conn.cursor()
         cursor.execute("DELETE FROM pattern_stats WHERE pattern_id = ?", (pattern_id,))
         cursor.execute("DELETE FROM alerts WHERE pattern_id = ?", (pattern_id,))
         cursor.execute("DELETE FROM patterns WHERE id = ?", (pattern_id,))
         deleted = cursor.rowcount > 0
         conn.commit()
-    finally:
-        disconnect_from_db(conn)
 
     # Logs live in their own database file.
     delete_logs_by_pattern_id(pattern_id)
@@ -1827,18 +1503,15 @@ def delete_pattern(pattern_id):
 
 
 def delete_all_patterns():
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute("DELETE FROM pattern_stats")
         cursor.execute("DELETE FROM alerts")
         cursor.execute("DELETE FROM patterns")
         deleted = cursor.rowcount
         conn.commit()
-    finally:
-        disconnect_from_db(conn)
 
     # Logs live in their own database file.
     delete_all_logs()
@@ -1846,24 +1519,20 @@ def delete_all_patterns():
 
 
 def reset_all_pattern_hit_counts():
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute("UPDATE patterns SET hit_count = 0")
         updated = cursor.rowcount
         conn.commit()
         return updated
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_old_patterns(days):
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cutoff = f"-{days} days"
         cursor.execute(
@@ -1891,28 +1560,22 @@ def delete_old_patterns(days):
         conn.commit()
 
         # Logs live in their own database file; delete them separately.
-        logs_conn = connect_to_db(get_db_for_table("logs"))
-        if logs_conn:
-            try:
+        with db_connection(get_db_for_table("logs")) as logs_conn:
+            if logs_conn:
                 logs_cursor = logs_conn.cursor()
                 logs_cursor.execute(
                     f"DELETE FROM logs WHERE pattern_id IN ({placeholders})",
                     pattern_ids,
                 )
                 logs_conn.commit()
-            finally:
-                disconnect_from_db(logs_conn)
 
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_old_alerts(days):
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM alerts WHERE created_at < datetime('now', 'localtime', ?)",
@@ -1921,15 +1584,12 @@ def delete_old_alerts(days):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_old_pattern_stats(hours=100):
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM pattern_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
@@ -1938,16 +1598,13 @@ def delete_old_pattern_stats(hours=100):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def delete_old_ai_api_calls(days=2):
     """Delete AI API call records older than the given number of days."""
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM ai_api_calls WHERE called_at < datetime('now', 'localtime', ?)",
@@ -1956,8 +1613,6 @@ def delete_old_ai_api_calls(days=2):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 # --- Pattern stats operations ---
@@ -1965,10 +1620,9 @@ def delete_old_ai_api_calls(days=2):
 
 def increment_pattern_stat(pattern_id, timestamp):
     def _upsert():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             # Truncate timestamp to hour bucket
             cursor.execute(
@@ -1979,8 +1633,6 @@ def increment_pattern_stat(pattern_id, timestamp):
                 (pattern_id, timestamp),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_upsert)
 
@@ -2004,10 +1656,9 @@ def _fill_hour_gaps(stats_list, hours):
 
 
 def get_pattern_stats(pattern_id, hours=100):
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             """SELECT hour_bucket, hit_count FROM pattern_stats
@@ -2017,15 +1668,12 @@ def get_pattern_stats(pattern_id, hours=100):
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_all_pattern_stats(hours=12):
-    conn = connect_to_db()
-    if not conn:
-        return {}
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return {}
         cursor = conn.cursor()
 
         # Get all pattern IDs
@@ -2050,15 +1698,12 @@ def get_all_pattern_stats(hours=12):
         for pid in all_pattern_ids:
             result[pid] = _fill_hour_gaps(raw_stats.get(pid, []), hours)
         return result
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_hourly_log_counts(hours=24):
-    conn = connect_to_db(get_db_for_table("logs"))
-    if not conn:
-        return []
-    try:
+    with db_connection(get_db_for_table("logs")) as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             """SELECT strftime('%Y-%m-%d %H:00:00', datetime(received_at)) AS hour_bucket, COUNT(*) AS cnt
@@ -2068,15 +1713,12 @@ def get_hourly_log_counts(hours=24):
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_hourly_alert_counts(hours=24):
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             """SELECT strftime('%Y-%m-%d %H:00:00', created_at) AS hour_bucket, COUNT(*) AS cnt
@@ -2086,15 +1728,12 @@ def get_hourly_alert_counts(hours=24):
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_hourly_new_pattern_counts(hours=24):
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             """SELECT strftime('%Y-%m-%d %H:00:00', datetime(first_seen_at)) AS hour_bucket, COUNT(*) AS cnt
@@ -2104,8 +1743,6 @@ def get_hourly_new_pattern_counts(hours=24):
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
-    finally:
-        disconnect_from_db(conn)
 
 
 def _increment_event_stat(cursor, stat_type, count, timestamp):
@@ -2121,10 +1758,9 @@ def _increment_event_stat(cursor, stat_type, count, timestamp):
 
 def _get_hourly_event_counts(stat_type, hours):
     """Return gap-filled hourly counts for one stat_type over the last `hours`."""
-    conn = connect_to_db()
-    if not conn:
-        return []
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return []
         cursor = conn.cursor()
         cursor.execute(
             """SELECT hour_bucket, hit_count FROM event_stats
@@ -2134,8 +1770,6 @@ def _get_hourly_event_counts(stat_type, hours):
         )
         raw = [{"hour": r[0], "count": r[1]} for r in cursor.fetchall()]
         return _fill_hour_gaps(raw, hours)
-    finally:
-        disconnect_from_db(conn)
 
 
 def _record_event_stat_with_total(stat_type, setting_key, count, timestamp):
@@ -2144,10 +1778,9 @@ def _record_event_stat_with_total(stat_type, setting_key, count, timestamp):
         return
 
     def _record():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             _increment_event_stat(cursor, stat_type, count, timestamp)
             cursor.execute(
@@ -2162,18 +1795,15 @@ def _record_event_stat_with_total(stat_type, setting_key, count, timestamp):
                 (count, setting_key),
             )
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_record)
 
 
 def delete_old_event_stats(hours=100):
     """Delete event_stats rows (all stat types) older than `hours`."""
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM event_stats WHERE hour_bucket < datetime('now', 'localtime', ?)",
@@ -2182,21 +1812,16 @@ def delete_old_event_stats(hours=100):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
-    finally:
-        disconnect_from_db(conn)
 
 
 def increment_noise_stat(timestamp):
     def _upsert():
-        conn = connect_to_db()
-        if not conn:
-            return
-        try:
+        with db_connection() as conn:
+            if not conn:
+                return
             cursor = conn.cursor()
             _increment_event_stat(cursor, "noise", 1, timestamp)
             conn.commit()
-        finally:
-            disconnect_from_db(conn)
 
     execute_with_retry(_upsert)
 
@@ -2217,10 +1842,9 @@ def record_silently_dropped(count, timestamp):
 
 def get_silently_dropped_count():
     """Return the running total of logs silently dropped at the listener."""
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
@@ -2228,8 +1852,6 @@ def get_silently_dropped_count():
         )
         row = cursor.fetchone()
         return row[0] if row else 0
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_hourly_dropped_counts(hours=24):
@@ -2238,10 +1860,9 @@ def get_hourly_dropped_counts(hours=24):
 
 def get_discarded_too_small_count():
     """Return the running total of logs dropped at the listener for being too small."""
-    conn = connect_to_db()
-    if not conn:
-        return 0
-    try:
+    with db_connection() as conn:
+        if not conn:
+            return 0
         cursor = conn.cursor()
         cursor.execute(
             "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = ?",
@@ -2249,8 +1870,6 @@ def get_discarded_too_small_count():
         )
         row = cursor.fetchone()
         return row[0] if row else 0
-    finally:
-        disconnect_from_db(conn)
 
 
 def get_hourly_too_small_counts(hours=24):

@@ -1,8 +1,6 @@
 import logging
 import os
 
-from src.utils.locallogging import log_info
-
 logger = logging.getLogger(__name__)
 
 # API
@@ -73,6 +71,11 @@ def get_config_summary():
 
 
 def ensure_directories():
+    # Imported lazily so this module has no import-time dependency on
+    # locallogging. locallogging imports path constants from config, so a
+    # top-level import here would create a config <-> locallogging cycle.
+    from src.utils.locallogging import log_info
+
     for d in [
         os.path.dirname(MITE_DB_PATH),
         MITE_LOGS_DIR,
