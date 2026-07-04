@@ -999,7 +999,7 @@ def get_action_by_id(action_id):
         }
 
 
-def get_actions(limit=100, offset=0, acknowledged=None, search=None):
+def get_actions(limit=None, offset=0, acknowledged=None, search=None):
     with db_connection() as conn:
         if not conn:
             return [], 0
@@ -1022,14 +1022,23 @@ def get_actions(limit=100, offset=0, acknowledged=None, search=None):
         cursor.execute(f"SELECT COUNT(*) FROM actions {where}", params)
         total = cursor.fetchone()[0]
 
-        cursor.execute(
-            f"""SELECT action_id, action_text, acknowledged, insert_date
-                FROM actions
-                {where}
-                ORDER BY action_id DESC
-                LIMIT ? OFFSET ?""",
-            params + [limit, offset],
-        )
+        if limit is not None:
+            cursor.execute(
+                f"""SELECT action_id, action_text, acknowledged, insert_date
+                    FROM actions
+                    {where}
+                    ORDER BY action_id DESC
+                    LIMIT ? OFFSET ?""",
+                params + [limit, offset],
+            )
+        else:
+            cursor.execute(
+                f"""SELECT action_id, action_text, acknowledged, insert_date
+                    FROM actions
+                    {where}
+                    ORDER BY action_id DESC""",
+                params,
+            )
         rows = cursor.fetchall()
         items = [
             {

@@ -56,7 +56,8 @@ def setup_actions_routes(app):
     @app.route("/api/actions", method=["GET"])
     @json_endpoint
     def api_get_actions():
-        limit = int(request.params.get("limit", 100))
+        limit_param = request.params.get("limit")
+        limit = int(limit_param) if limit_param is not None else None
         offset = int(request.params.get("offset", 0))
         search = request.params.get("search")
         acknowledged_param = request.params.get("acknowledged")
