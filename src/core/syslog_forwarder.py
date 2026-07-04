@@ -6,7 +6,7 @@ import logging
 import socket
 from datetime import datetime
 
-from src.utils.locallogging import log_error, log_info
+from src.utils.locallogging import log_error, log_info, log_warn
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,9 @@ def _parse_destination(destination_str):
 
     parts = destination_str.strip().rsplit(":", 1)
     if len(parts) != 2:
-        log_error(
+        log_warn(
             logger,
-            f"[ERROR] Invalid syslog destination format: {destination_str}. Expected 'host:port'",
+            f"[WARN] Invalid syslog destination format: {destination_str}. Expected 'host:port'",
         )
         return None, None
 

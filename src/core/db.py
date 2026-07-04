@@ -17,7 +17,7 @@ from src.core.models import (
     CONST_CREATE_SETTINGS_SQL,
 )
 from src.core.settings_schema import default_settings_seed
-from src.utils.locallogging import log_error, log_info
+from src.utils.locallogging import log_error, log_info, log_warn
 
 MAX_RETRIES = 5
 RETRY_BACKOFF = 0.5
@@ -162,9 +162,9 @@ def _seed_patterns_from_import_file(cursor):
         patterns = []
 
     if not isinstance(patterns, list):
-        log_error(
+        log_warn(
             logger,
-            f"[ERROR] {import_path}: 'patterns' must be a list; skipping seed",
+            f"[WARN] {import_path}: 'patterns' must be a list; skipping seed",
         )
         return 0
 

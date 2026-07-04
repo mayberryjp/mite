@@ -3,7 +3,7 @@ import logging
 import requests
 
 from src.core.db import get_setting
-from src.utils.locallogging import log_error, log_info
+from src.utils.locallogging import log_error, log_info, log_warn
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,9 @@ def send_discord_message(content):
             log_info(logger, "[INFO] Discord message sent successfully")
             return True
         else:
-            log_error(
+            log_warn(
                 logger,
-                f"[ERROR] Discord webhook returned status {resp.status_code}: {resp.text}",
+                f"[WARN] Discord webhook returned status {resp.status_code}: {resp.text}",
             )
             return False
     except Exception as e:

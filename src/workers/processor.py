@@ -5,6 +5,7 @@ import time
 
 from src.core.ai_discovery import (
     classify_single_pattern,
+    is_ai_rate_limited,
     preprocess_sample_for_ai,
     test_ai_connection,
 )
@@ -33,7 +34,7 @@ from src.core.discord import send_alert_discord, send_discord_message
 from src.core.pattern_extractor import extract_pattern, hash_pattern
 from src.core.settings_loader import get_int_setting
 from src.core.syslog_forwarder import CLASSIFICATION_LEVELS, forward_log_to_syslog
-from src.utils.locallogging import log_error, log_info, write_syslog_daily_log
+from src.utils.locallogging import log_error, log_info, log_warn, write_syslog_daily_log
 
 logger = logging.getLogger(__name__)
 
@@ -261,9 +262,9 @@ def _classify_until_regex_matches(
         )
 
         if not ai_pattern:
-            log_error(
+            log_warn(
                 logger,
-                f"[ERROR] AI classification returned no result for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS})",
+                f"[WARN] AI classification returned no result for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS})",
             )
             continue
 
@@ -283,9 +284,9 @@ def _classify_until_regex_matches(
         debug_regex = _truncate_for_log((ai_pattern.get("match_regex") or "").strip())
         debug_message = _truncate_for_log(tokenized_message)
         previous_regex = ai_pattern.get("match_regex") or ""
-        log_error(
+        log_warn(
             logger,
-            f"[ERROR] AI regex did not match source log for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}); retrying",
+            f"[WARN] AI regex did not match source log for pattern {pattern_id} (attempt {attempt}/{MAX_AI_REGEX_ATTEMPTS}); retrying",
         )
         log_info(logger, f"[INFO] Pattern {pattern_id} regex: {debug_regex!r}")
         log_info(logger, f"[INFO] Pattern {pattern_id} message: {debug_message!r}")
@@ -320,17 +321,31 @@ def process_log(log_entry):
             return True
         pattern = get_pattern_by_id(pattern_id)
         if not pattern:
-            log_error(
+            log_warn(
                 logger,
-                f"[ERROR] Regex matched missing pattern id={pattern_id}; dropping log {log_entry['id']}",
+                f"[WARN] Regex matched missing pattern id={pattern_id}; invalidating cache and leaving log {log_entry['id']} for retry",
             )
             _invalidate_regex_cache()
-            delete_logs([log_entry["id"]])
             return True
     else:
         # Deterministic pattern identity prevents duplicate patterns for equivalent logs.
         pattern_hash = hash_pattern(normalized_pattern)
         pattern = get_pattern_by_hash(pattern_hash)
+
+        # If AI classification will be required (a brand-new pattern, or an
+        # existing one whose regex does not match) but the AI budget is
+        # exhausted, defer the whole log: create nothing, drop nothing, and stop
+        # the cycle so it is retried once AI calls are available again.
+        needs_ai = pattern is None or not _pattern_regex_matches_message(
+            pattern, tokenized_message
+        )
+        if needs_ai and is_ai_rate_limited():
+            log_warn(
+                logger,
+                f"[WARN] AI rate limit reached; deferring log {log_entry['id']} "
+                "until AI calls are available (nothing created or left pending)",
+            )
+            return False
 
         if pattern:
             pattern_id = pattern["id"]
@@ -352,11 +367,10 @@ def process_log(log_entry):
             new_pattern_created = True
 
         if not pattern:
-            log_error(
+            log_warn(
                 logger,
-                f"[ERROR] Pattern lookup failed for log {log_entry['id']} (pattern_id={pattern_id}); dropping log",
+                f"[WARN] Pattern lookup failed for log {log_entry['id']} (pattern_id={pattern_id}); leaving it unprocessed for retry",
             )
-            delete_logs([log_entry["id"]])
             return True
 
         if not _pattern_regex_matches_message(pattern, tokenized_message):
@@ -380,13 +394,16 @@ def process_log(log_entry):
                     f"[INFO] AI classification accepted for pattern {pattern_id}: '{pattern.get('classification')}' title='{pattern.get('title', '')}'",
                 )
             else:
-                # After max retries, drop this log and continue with remaining logs.
-                log_error(
+                # AI is reachable but could not produce a regex matching this log
+                # after retries. Keep the log linked to its pattern (the AI worker
+                # will finish classifying it if still pending) rather than dropping it.
+                log_warn(
                     logger,
-                    f"[ERROR] AI could not produce a matching regex for pattern {pattern_id}; dropping log {log_entry['id']} after max retries",
+                    f"[WARN] AI could not produce a matching regex for pattern {pattern_id}; keeping log {log_entry['id']} linked to the pattern",
                 )
-                delete_logs([log_entry["id"]])
-                return True
+                refreshed = get_pattern_by_id(pattern_id)
+                if refreshed:
+                    pattern = refreshed
 
     if new_pattern_created:
         _handle_new_pattern_side_effects(pattern_id, pattern, tokenized_message)
@@ -464,9 +481,10 @@ def process_logs():
         try:
             should_continue = process_log(log_entry)
             if not should_continue:
-                log_error(
+                log_warn(
                     logger,
-                    "[ERROR] Stopping log processing — AI unavailable. Will retry next cycle.",
+                    "[WARN] Pausing log processing — AI unavailable/rate-limited. "
+                    "Remaining logs stay unprocessed and are retried next cycle.",
                 )
                 return
         except Exception as e:
@@ -492,10 +510,11 @@ if __name__ == "__main__":
     log_info(logger, "[INFO] Testing AI API connectivity...")
     success, error = test_ai_connection()
     if not success:
-        log_error(logger, f"[FATAL] AI API is not available: {error}")
         log_error(
             logger,
-            "[FATAL] Processor cannot start without a working AI connection. Fix AI_API_BASE_URL, AI_API_KEY, and AI_MODEL then restart.",
+            f"[FATAL] AI API is not available: {error}. Processor cannot start "
+            "without a working AI connection. Fix AI_API_BASE_URL, AI_API_KEY, "
+            "and AI_MODEL then restart.",
         )
         sys.exit(1)
     log_info(logger, "[INFO] AI API connection successful")
