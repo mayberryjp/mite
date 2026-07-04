@@ -79,12 +79,6 @@ def _load_syslog_forwarding_settings():
     store_min = get_setting("db_store_min_classification", "low") or "low"
     DB_STORE_MIN_CLASSIFICATION = str(store_min).strip().lower()
 
-    if SYSLOG_FORWARD_ENABLED and SYSLOG_FORWARD_DESTINATION:
-        log_info(
-            logger,
-            f"[INFO] Syslog forwarding enabled: destination={SYSLOG_FORWARD_DESTINATION}, min_classification={SYSLOG_FORWARD_MIN_CLASSIFICATION}",
-        )
-
 
 # Cache of compiled regexes, refreshed periodically
 _regex_cache = []
@@ -459,6 +453,7 @@ def process_logs():
     _load_runtime_settings()
     logs = get_unprocessed_logs(limit=PROCESS_FETCH_LIMIT)
     if not logs:
+        log_info(logger, "[INFO] No logs to process")
         return
 
     log_info(logger, f"[INFO] Processing {len(logs)} unprocessed logs")
