@@ -295,7 +295,12 @@ def _classify_until_regex_matches(
 
 
 def process_log(log_entry):
-    """Process a single log entry. Returns True to continue processing."""
+    """Process a single log entry.
+
+    Logs matching an existing pattern are always processed. An unclassified log
+    that needs AI is skipped (left unprocessed for retry) when the AI budget is
+    exhausted, so a rate limit never blocks logs that match existing patterns.
+    """
 
     message = log_entry.get("message", "")
     tokenized_message = preprocess_sample_for_ai(message)
@@ -334,18 +339,20 @@ def process_log(log_entry):
 
         # If AI classification will be required (a brand-new pattern, or an
         # existing one whose regex does not match) but the AI budget is
-        # exhausted, defer the whole log: create nothing, drop nothing, and stop
-        # the cycle so it is retried once AI calls are available again.
+        # exhausted, skip just this log: create nothing, drop nothing, and leave
+        # it unprocessed so it is retried once AI calls are available again.
+        # Logs that match an existing pattern keep flowing in the same cycle.
         needs_ai = pattern is None or not _pattern_regex_matches_message(
             pattern, tokenized_message
         )
         if needs_ai and is_ai_rate_limited():
             log_warn(
                 logger,
-                f"[WARN] AI rate limit reached; deferring log {log_entry['id']} "
-                "until AI calls are available (nothing created or left pending)",
+                f"[WARN] AI rate limit reached; skipping unclassified log "
+                f"{log_entry['id']} (left unprocessed for retry). Logs matching "
+                "existing patterns continue to be processed.",
             )
-            return False
+            return True
 
         if pattern:
             pattern_id = pattern["id"]
@@ -479,14 +486,7 @@ def process_logs():
 
     for log_entry in logs:
         try:
-            should_continue = process_log(log_entry)
-            if not should_continue:
-                log_warn(
-                    logger,
-                    "[WARN] Pausing log processing — AI unavailable/rate-limited. "
-                    "Remaining logs stay unprocessed and are retried next cycle.",
-                )
-                return
+            process_log(log_entry)
         except Exception as e:
             log_error(
                 logger,

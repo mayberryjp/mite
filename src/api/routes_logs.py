@@ -7,6 +7,7 @@ from src.api._common import json_endpoint
 from src.core.db import (
     delete_all_logs,
     delete_logs_for_noise_patterns,
+    delete_pending_logs,
     get_hourly_dropped_counts,
     get_hourly_log_counts,
     get_hourly_noise_counts,
@@ -65,6 +66,13 @@ def setup_logs_routes(app):
     def api_delete_all_logs():
         deleted = delete_all_logs()
         log_info(logger, f"[INFO] Deleted all logs ({deleted} total)")
+        return json.dumps({"status": "ok", "deleted": deleted})
+
+    @app.route("/api/logs/pending", method=["DELETE"])
+    @json_endpoint
+    def api_delete_pending_logs():
+        deleted = delete_pending_logs()
+        log_info(logger, f"[INFO] Deleted {deleted} pending logs")
         return json.dumps({"status": "ok", "deleted": deleted})
 
     @app.route("/api/logs/hourly", method=["GET"])

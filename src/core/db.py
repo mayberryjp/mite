@@ -1473,6 +1473,22 @@ def delete_all_logs():
         return deleted
 
 
+def delete_pending_logs():
+    """Delete all pending (unprocessed) logs. Returns count deleted."""
+
+    def _delete():
+        with db_connection(get_db_for_table("logs")) as conn:
+            if not conn:
+                return 0
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM logs WHERE processed = 0")
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+
+    return execute_with_retry(_delete) or 0
+
+
 def delete_all_alerts():
     with db_connection() as conn:
         if not conn:
