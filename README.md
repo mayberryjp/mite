@@ -65,6 +65,22 @@ Traditional syslog monitoring requires you to write rules. Lots of rules. And th
 
 ---
 
+## 🖼️ UI Screenshots
+
+### Dashboard Overview
+
+![Mite Dashboard Overview](assets/main_dashboard.png)
+
+### Pattern Details View
+
+![Mite Pattern Details](assets/pattern_details.png)
+
+### Logs Search View
+
+![Mite Logs Search](assets/live_log_viewer.png)
+
+---
+
 ## 🚀 Quick Start
 
 ### Docker Compose
