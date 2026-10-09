@@ -88,6 +88,11 @@ EDITABLE_SETTINGS = {
         "type": "int",
         "min": 1,
     },
+    "ai_regex_review_enabled": {
+        "description": "Enable the periodic AI review of regex duplication/similarity for consolidation suggestions.",
+        "default": "false",
+        "type": "bool",
+    },
     "ai_regex_review_interval_seconds": {
         "description": "How often the AI worker reviews regex duplication/similarity for consolidation suggestions.",
         "default": "604800",

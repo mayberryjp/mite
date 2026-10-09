@@ -33,6 +33,10 @@ def run_ai_classification_cycle():
 
 
 def run_regex_review_cycle_if_due(force=False):
+    enabled = str(get_setting("ai_regex_review_enabled", "false")).strip().lower()
+    if enabled not in ("true", "1", "yes", "on"):
+        return
+
     review_interval = get_int_setting(
         "ai_regex_review_interval_seconds", AI_REGEX_REVIEW_INTERVAL_DEFAULT
     )
@@ -59,7 +63,7 @@ if __name__ == "__main__":
     time.sleep(30)
     init_database()
 
-    # Force one startup pass so ai_efficiency_score is always refreshed.
+    # Force one startup pass so ai_efficiency_score is refreshed (when enabled).
     try:
         run_regex_review_cycle_if_due(force=True)
     except Exception as e:
